@@ -2,71 +2,78 @@
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <title>Excel 连線分析工具</title>
+    <title>Excel 分析儀表板</title>
     <style>
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
-            max-width: 1000px;
+            max-width: 1200px;
             margin: 20px auto;
             padding: 20px;
             background-color: #f5f7fa;
         }
-        .upload-section {
+        .section {
             background: white;
-            padding: 30px;
+            padding: 25px;
             border-radius: 10px;
             box-shadow: 0 2px 15px rgba(0,0,0,0.1);
             margin-bottom: 30px;
         }
-        #fileInput {
-            display: none;
-        }
-        .custom-upload-btn {
+        .btn {
             background: #4CAF50;
             color: white;
-            padding: 12px 25px;
+            padding: 10px 20px;
             border-radius: 5px;
             cursor: pointer;
-            transition: background 0.3s;
-            display: inline-block;
+            border: none;
+            margin-right: 10px;
         }
-        .custom-upload-btn:hover {
-            background: #45a049;
+        select {
+            padding: 8px 12px;
+            margin-right: 15px;
         }
-        #resultTable {
+        table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
             background: white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-top: 20px;
         }
-        #resultTable th {
+        th {
             background: #2196F3;
             color: white;
-            padding: 15px;
-            text-align: left;
-        }
-        #resultTable td {
             padding: 12px;
-            border-bottom: 1px solid #eee;
         }
-        #resultTable tr:hover {
-            background-color: #f5f5f5;
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
         }
-        .status {
-            margin-top: 15px;
-            color: #666;
+        tr:hover {
+            background-color: #f1f1f1;
         }
     </style>
 </head>
 <body>
-    <div class="upload-section">
-        <h2>Excel 连線分析工具</h2>
-        <label class="custom-upload-btn" for="fileInput">
-            📁 上传 Excel 文件
-        </label>
-        <input type="file" id="fileInput" accept=".xls,.xlsx">
-        <div class="status" id="status"></div>
+    <div class="section">
+        <h2>📈 Excel 分析工具</h2>
+        <input type="file" id="fileInput" accept=".xls,.xlsx" style="display: none;">
+        <button class="btn" onclick="document.getElementById('fileInput').click()">📁 上傳 Excel</button>
+        <span id="uploadStatus"></span>
+    </div>
+
+    <div class="section">
+        <h3>📅 查看單日數據</h3>
+        <select id="dateSelect" onchange="renderByDate()">
+            <option value="">-- 選擇日期 --</option>
+        </select>
+    </div>
+
+    <div class="section">
+        <h3>📊 多日比對分析</h3>
+        <select id="rangeSelect" onchange="renderTopRepeated()">
+            <option value="">-- 選擇區間 --</option>
+            <option value="10">10 天</option>
+            <option value="20">20 天</option>
+            <option value="30">30 天</option>
+        </select>
     </div>
 
     <table id="resultTable">
@@ -82,100 +89,127 @@
     </table>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-
     <script>
-        document.getElementById('fileInput').addEventListener('change', handleFile);
+        const fileInput = document.getElementById('fileInput');
+        const tableBody = document.getElementById('tableBody');
+        const dateSelect = document.getElementById('dateSelect');
+
+        fileInput.addEventListener('change', handleFile);
 
         function handleFile(e) {
             const file = e.target.files[0];
             if (!file) return;
 
             const reader = new FileReader();
-            reader.onload = function(e) {
-                processExcel(e.target.result);
-            };
-            reader.readAsArrayBuffer(file);
-            document.getElementById('status').textContent = `已选择文件：${file.name}`;
-        }
-
-        function processExcel(data) {
-            try {
-                const workbook = XLSX.read(data, {type: 'array'});
-
-                const targetSheet = workbook.SheetNames.find(name =>
-                    /report2|top主機/i.test(name)
-                );
-
-                if (!targetSheet) {
-                    alert('未找到目标分页，请确认文件格式');
-                    return;
-                }
-
+            reader.onload = function (e) {
+                const data = e.target.result;
+                const workbook = XLSX.read(data, { type: 'array' });
+                const targetSheet = workbook.SheetNames.find(name => name.includes('Report2') || name.includes('Top主機'));
+                if (!targetSheet) return alert('找不到指定分頁');
                 const worksheet = workbook.Sheets[targetSheet];
-                const jsonData = XLSX.utils.sheet_to_json(worksheet, {header: 1, defval: ''});
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
                 const headerRow = jsonData.find(row =>
-                    row.some(cell => /編號/.test(cell)) &&
-                    row.some(cell => /主機/.test(cell)) &&
-                    row.some(cell => /總連線數/.test(cell))
+                    row.some(cell => cell.includes('編號')) &&
+                    row.some(cell => cell.includes('主機')) &&
+                    row.some(cell => cell.includes('總連線數'))
                 );
 
-                if (!headerRow) {
-                    alert('表格格式不符合要求');
-                    return;
-                }
+                if (!headerRow) return alert('無法辨識欄位');
 
-                const hostColIndex = headerRow.findIndex(cell => /主機/.test(cell));
-                const connColIndex = headerRow.findIndex(cell => /總連線數/.test(cell));
+                const hostColIndex = headerRow.findIndex(cell => cell.includes('主機'));
+                const connColIndex = headerRow.findIndex(cell => cell.includes('總連線數'));
 
-                const results = [];
-                jsonData.forEach((row, index) => {
-                    if (index <= jsonData.indexOf(headerRow)) return;
-
+                const result = [];
+                jsonData.forEach((row, idx) => {
+                    if (idx <= jsonData.indexOf(headerRow)) return;
                     const hostCell = String(row[hostColIndex] || '');
-                    const connections = row[connColIndex] || 0;
+                    const conn = parseInt((row[connColIndex] || '0').toString().replace(/[^\d]/g, '')) || 0;
 
-                    const ipMatch = hostCell.match(/\b(?:10|192|172)\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
+                    const ipMatch = hostCell.match(/(10|192|172)\.\d{1,3}\.\d{1,3}\.\d{1,3}/);
                     if (!ipMatch) return;
+                    const ip = ipMatch[0];
 
-                    let accountInfo = '-';
+                    let account = '-';
                     const parts = hostCell.split('-');
                     if (parts.length > 1) {
-                        const accountPart = parts.slice(1).join('-');
-
-                        const cleanAccount = accountPart
+                        const accountPart = parts.slice(1).join('-')
                             .replace(/\(Merry-MEHO-.*?\)/g, '')
                             .replace(/\(\d+\.\d+\.\d+\.\d+.*?\)/g, '')
-                            .replace(/\s+/g, ' ')
-                            .trim();
-
-                        accountInfo = cleanAccount || '-';
+                            .replace(/\s+/g, ' ').trim();
+                        const valid = accountPart.match(/(.+\/(.+?)\s?\(.+?\))/);
+                        account = valid ? valid[1] : accountPart;
                     }
 
-                    results.push({
-                        ip: ipMatch[0],  // ✅ 修正這行
-                        account: accountInfo,
-                        connections: parseInt(
-                            connections.toString()
-                            .replace(/,/g, '')
-                            .replace(/[^\d]/g, '')
-                        ) || 0
-                    });
+                    result.push({ ip, account, connections: conn });
                 });
 
-                console.log('解析結果：', results);
-                renderTable(results.slice(0, 50));
+                const today = new Date().toISOString().slice(0, 10);
+                localStorage.setItem(`excel_data_${today}`, JSON.stringify(result));
+                loadAvailableDates();
+                alert('資料已儲存：' + today);
+            };
+            reader.readAsArrayBuffer(file);
+        }
 
-            } catch (error) {
-                alert('解析错误: ' + error.message);
-                console.error('错误详情：', error.stack);
-            }
+        function loadAvailableDates() {
+            dateSelect.innerHTML = '<option value="">-- 選擇日期 --</option>';
+            Object.keys(localStorage)
+                .filter(key => key.startsWith('excel_data_'))
+                .map(key => key.replace('excel_data_', ''))
+                .sort().reverse()
+                .forEach(date => {
+                    const opt = document.createElement('option');
+                    opt.value = date;
+                    opt.textContent = date;
+                    dateSelect.appendChild(opt);
+                });
+        }
+
+        function renderByDate() {
+            const date = dateSelect.value;
+            if (!date) return;
+            const data = JSON.parse(localStorage.getItem(`excel_data_${date}`)) || [];
+            renderTable(data);
+        }
+
+        function renderTopRepeated() {
+            const days = parseInt(document.getElementById('rangeSelect').value);
+            if (!days) return;
+            const today = new Date();
+            const recentDates = Object.keys(localStorage)
+                .filter(key => key.startsWith('excel_data_'))
+                .map(key => key.replace('excel_data_', ''))
+                .filter(date => {
+                    const d = new Date(date);
+                    return (today - d) / (1000 * 3600 * 24) <= days;
+                });
+
+            const allData = [];
+            recentDates.forEach(date => {
+                const data = JSON.parse(localStorage.getItem(`excel_data_${date}`)) || [];
+                data.sort((a, b) => b.connections - a.connections);
+                allData.push(...data.slice(0, 3));
+            });
+
+            const countMap = {};
+            allData.forEach(item => {
+                const key = `${item.ip}|${item.account}`;
+                countMap[key] = (countMap[key] || { ...item, count: 0 });
+                countMap[key].count++;
+            });
+
+            const filtered = Object.values(countMap).filter(item => item.count >= 2);
+            filtered.sort((a, b) => b.count - a.count);
+            renderTable(filtered.map((item, i) => ({
+                ip: item.ip,
+                account: item.account + `（出現 ${item.count} 次）`,
+                connections: item.connections
+            })));
         }
 
         function renderTable(data) {
-            const tbody = document.getElementById('tableBody');
-            tbody.innerHTML = '';
-
+            tableBody.innerHTML = '';
             data.forEach((item, index) => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
@@ -184,9 +218,11 @@
                     <td>${item.account}</td>
                     <td>${item.connections.toLocaleString()}</td>
                 `;
-                tbody.appendChild(row);
+                tableBody.appendChild(row);
             });
         }
+
+        window.onload = loadAvailableDates;
     </script>
 </body>
 </html>

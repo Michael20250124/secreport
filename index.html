@@ -25,8 +25,9 @@
             const [report, setReport] = useState(null);
             const [error, setError] = useState(null);
             const [loading, setLoading] = useState(false);
-            const [sheetName, setSheetName] = useState('Report2');
+            const [sheetName, setSheetName] = useState('');
             const [availableSheets, setAvailableSheets] = useState([]);
+            const [file, setFile] = useState(null);
 
             // 清理帳號名稱，移除組織層級資訊
             const cleanAccountName = (accountStr) => {
@@ -45,17 +46,17 @@
 
             // 處理 Excel 檔案
             const handleFileUpload = (event) => {
-                const file = event.target.files[0];
-                if (!file) {
+                const selectedFile = event.target.files[0];
+                if (!selectedFile) {
                     setError('請選擇一個 Excel 檔案');
                     setLoading(false);
                     return;
                 }
-
+                setFile(selectedFile);
                 setLoading(true);
                 setError(null);
                 setReport(null);
-                console.log('開始處理檔案:', file.name);
+                console.log('開始處理檔案:', selectedFile.name);
 
                 const reader = new FileReader();
                 reader.onload = (e) => {
@@ -67,35 +68,71 @@
 
                         // 更新可用工作表列表
                         setAvailableSheets(workbook.SheetNames);
+                        if (!sheetName && workbook.SheetNames.length > 0) {
+                            setSheetName(workbook.SheetNames[0]);
+                        }
 
-                        // 選擇工作表
-                        const selectedSheet = workbook.SheetNames.includes(sheetName) ? sheetName : workbook.SheetNames[0];
-                        console.log('選用工作表:', selectedSheet);
-                        const sheet = workbook.Sheets[selectedSheet];
+                        setLoading(false);
+                    } catch (err) {
+                        console.error('檔案讀取錯誤:', err);
+                        setError('無法解析 Excel 檔案，請確保檔案格式為 .xls 或 .xlsx');
+                        setLoading(false);
+                    }
+                };
+                reader.onerror = () => {
+                    setError('無法讀取檔案，請確保檔案格式正確');
+                    setLoading(false);
+                };
+                reader.readAsArrayBuffer(file || selectedFile);
+            };
+
+            // 解析選定工作表
+            const parseSheet = () => {
+                if (!file) {
+                    setError('請先上傳 Excel 檔案');
+                    return;
+                }
+                if (!sheetName) {
+                    setError('請選擇一個工作表');
+                    return;
+                }
+
+                setLoading(true);
+                setError(null);
+                setReport(null);
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        console.log('開始解析工作表:', sheetName);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const sheet = workbook.Sheets[sheetName];
                         if (!sheet) {
-                            throw new Error(`無法載入工作表: ${selectedSheet}`);
+                            throw new Error(`無法載入工作表: ${sheetName}`);
                         }
 
                         const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-                        console.log('工作表轉為 JSON（前5行）:', json.slice(0, 5));
+                        console.log('工作表轉為 JSON（前10行）:', json.slice(0, 10));
 
                         let dataRows = [];
                         let totalTraffic = 0;
                         let totalConnections = 0;
                         let foundData = false;
+                        let errors = [];
 
                         // 提取 Top主機 資料
                         for (let i = 0; i < json.length; i++) {
                             const row = json[i];
-                            const rowNum = row[0] ? String(row[0]).trim() : '';
                             console.log(`處理第 ${i + 1} 行:`, row);
 
-                            // 嘗試識別資料行（允許非數字編號或無編號）
-                            if (rowNum && (row[1] || row[2])) {
-                                const ipInfo = row[1] ? String(row[1]).trim() : '';
-                                const connections = Number(row[2]) || 0;
-                                console.log('識別為資料行:', { rowNum, ipInfo, connections });
+                            // 檢查是否為資料行
+                            const rowNum = row[0] ? String(row[0]).trim() : '';
+                            const ipInfo = row[1] ? String(row[1]).trim() : '';
+                            const connections = row[2] ? Number(row[2]) : NaN;
 
+                            if ((rowNum || ipInfo) && !isNaN(connections)) {
+                                console.log('識別為資料行:', { rowNum, ipInfo, connections });
                                 const ipMatch = ipInfo.match(/^(\d+\.\d+\.\d+\.\d+)(?:-([\w\d\-\/].*))?/);
                                 if (ipMatch) {
                                     const ip = ipMatch[1];
@@ -105,27 +142,37 @@
                                         account: cleanAccountName(account),
                                         connections
                                     });
-                                } else {
+                                } else if (ipInfo) {
                                     dataRows.push({
-                                        ipAddress: ipInfo || '未知',
+                                        ipAddress: ipInfo,
                                         account: '未關聯特定帳號/姓名',
                                         connections
                                     });
+                                } else {
+                                    errors.push(`第 ${i + 1} 行：無有效 IP 地址`);
+                                    continue;
                                 }
                                 foundData = true;
-                            }
-                            if (row[0] === '總流量') {
+                            } else if (row[0] === '總流量') {
                                 totalTraffic = Number(row[1]) || 0;
                                 console.log('提取總流量:', totalTraffic);
-                            }
-                            if (row[0] === 'Total') {
+                            } else if (row[0] === 'Total') {
                                 totalConnections = Number(row[1]) || 0;
                                 console.log('提取總連線數:', totalConnections);
+                            } else if (ipInfo || !isNaN(connections)) {
+                                errors.push(`第 ${i + 1} 行：格式無效（連線數應為數字，IP/帳號缺失）`);
                             }
                         }
 
                         if (!foundData) {
-                            throw new Error('未找到有效的 Top主機 資料。請確認 Excel 檔案是否包含編號、IP/帳號、連線數欄位，且資料格式正確。');
+                            let errorMsg = '未找到有效的 Top主機 資料。請確認：\n';
+                            errorMsg += '- 資料包含編號（可選）、IP/帳號、連線數欄位。\n';
+                            errorMsg += '- IP/帳號欄位包含類似 "10.101.16.195" 或 "10.101.16.195-帳號" 的內容。\n';
+                            errorMsg += '- 連線數為數字（例如 110）。\n';
+                            if (errors.length > 0) {
+                                errorMsg += '- 以下行有問題：\n  ' + errors.join('\n  ');
+                            }
+                            throw new Error(errorMsg);
                         }
 
                         console.log('資料提取完成:', { dataRows, totalTraffic, totalConnections });
@@ -140,12 +187,12 @@
                         setLoading(false);
                     } catch (err) {
                         console.error('解析錯誤:', err);
-                        setError(`處理檔案時出錯：${err.message}。請確認工作表名稱（可用：${availableSheets.join(', ')}）和資料格式。`);
+                        setError(`處理工作表 "${sheetName}" 時出錯：${err.message}\n可用工作表：${availableSheets.join(', ')}`);
                         setLoading(false);
                     }
                 };
                 reader.onerror = () => {
-                    setError('無法讀取檔案，請確保檔案格式為 .xls 或 .xlsx');
+                    setError('無法讀取檔案，請確保檔案格式正確');
                     setLoading(false);
                 };
                 reader.readAsArrayBuffer(file);
@@ -154,24 +201,6 @@
             return (
                 <div className="bg-white p-6 rounded-lg shadow-md">
                     <h1 className="text-2xl font-bold mb-4">Excel Top 主機分析</h1>
-                    <div className="mb-4">
-                        <label htmlFor="sheet-name" className="block text-sm font-medium text-gray-700 mb-2">
-                            工作表名稱（預設：Report2）
-                        </label>
-                        <input
-                            id="sheet-name"
-                            type="text"
-                            value={sheetName}
-                            onChange={(e) => setSheetName(e.target.value)}
-                            placeholder="輸入工作表名稱"
-                            className="block w-full p-2 border border-gray-300 rounded-md mb-2"
-                        />
-                        {availableSheets.length > 0 && (
-                            <p className="text-sm text-gray-600">
-                                可用工作表：{availableSheets.join(', ')}
-                            </p>
-                        )}
-                    </div>
                     <div className="mb-4">
                         <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 mb-2">
                             上傳 Excel 檔案 (.xls 或 .xlsx)
@@ -184,12 +213,37 @@
                             className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                         />
                     </div>
+                    {availableSheets.length > 0 && (
+                        <div className="mb-4">
+                            <label htmlFor="sheet-name" className="block text-sm font-medium text-gray-700 mb-2">
+                                選擇工作表
+                            </label>
+                            <select
+                                id="sheet-name"
+                                value={sheetName}
+                                onChange={(e) => setSheetName(e.target.value)}
+                                className="block w-full p-2 border border-gray-300 rounded-md"
+                            >
+                                {availableSheets.map((sheet) => (
+                                    <option key={sheet} value={sheet}>
+                                        {sheet}
+                                    </option>
+                                ))}
+                            </select>
+                            <button
+                                onClick={parseSheet}
+                                className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                            >
+                                解析工作表
+                            </button>
+                        </div>
+                    )}
                     {loading && <p className="text-blue-600 mb-4">正在處理檔案，請稍候...</p>}
                     {error && (
-                        <div className="text-red-600 mb-4">
+                        <div className="text-red-600 mb-4 whitespace-pre-line">
                             <p>{error}</p>
                             <p className="mt-2">
-                                請檢查 Excel 檔案格式，確保包含「Top主機」資料（編號、IP/帳號、連線數），並確認工作表名稱正確。
+                                請檢查 Excel 檔案格式，確保包含「Top主機」資料（編號、IP/帳號、連線數）。
                                 <br />
                                 <a href="#" onClick={() => setError(null)} className="text-blue-600 underline">
                                     重新上傳

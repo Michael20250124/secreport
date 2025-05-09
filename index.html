@@ -9,11 +9,6 @@
     <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.9/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <!-- 若 CDN 無法載入，可下載至倉庫的 libs 目錄並使用本地路徑 -->
-    <!-- <script src="./libs/react.production.min.js"></script> -->
-    <!-- <script src="./libs/react-dom.production.min.js"></script> -->
-    <!-- <script src="./libs/babel.min.js"></script> -->
-    <!-- <script src="./libs/xlsx.full.min.js"></script> -->
 </head>
 <body class="bg-gray-100 p-6">
     <div id="root" class="max-w-4xl mx-auto">
@@ -21,11 +16,9 @@
     </div>
 
     <script type="text/babel">
-        // 全局錯誤處理
         window.onerror = function (message, source, lineno, colno, error) {
             console.error('全局錯誤:', { message, source, lineno, colno, error });
-            const root = document.getElementById('root');
-            root.innerHTML = `
+            document.getElementById('root').innerHTML = `
                 <div class="bg-white p-6 rounded-lg shadow-md text-red-600">
                     <h1 class="text-2xl font-bold mb-4">應用載入失敗</h1>
                     <p>錯誤訊息: ${message}</p>
@@ -35,7 +28,6 @@
             return true;
         };
 
-        // 確認依賴是否載入
         if (!window.React || !window.ReactDOM || !window.XLSX || !window.Babel) {
             throw new Error('無法載入必要資源（React, ReactDOM, XLSX, 或 Babel）。請檢查網路連線或使用本地資源。');
         }
@@ -69,11 +61,12 @@
                 return Number(value) || 0;
             };
 
-            // 檢查標題行
+            // 檢查標題行（放寬條件）
             const isHeaderRow = (row) => {
-                const first = String(row[0]).trim().toLowerCase();
-                const second = String(row[1]).trim().toLowerCase();
-                const third = String(row[2]).trim().toLowerCase();
+                if (!row || row.length < 3) return false;
+                const first = String(row[0] || '').trim().toLowerCase();
+                const second = String(row[1] || '').trim().toLowerCase();
+                const third = String(row[2] || '').trim().toLowerCase();
                 return (
                     first.includes('編號') &&
                     second.includes('主機') &&
@@ -148,8 +141,8 @@
                             throw new Error(`無法載入工作表: ${sheetName}`);
                         }
 
-                        const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-                        console.log('工作表轉為 JSON（前10行）:', json.slice(0, 10));
+                        const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+                        console.log('工作表轉為 JSON（完整）:', json);
 
                         let dataRows = [];
                         let totalTraffic = 0;
@@ -161,31 +154,36 @@
                             const row = json[i];
                             console.log(`處理第 ${i + 1} 行:`, row);
 
-                            if (!row[0] && !row[1] && !row[2]) {
+                            // 跳過空行
+                            if (!row || row.every(cell => cell === '' || cell == null)) {
                                 console.log(`第 ${i + 1} 行：空行，跳過`);
                                 continue;
                             }
 
+                            // 跳過標題行
                             if (isHeaderRow(row)) {
                                 console.log(`第 ${i + 1} 行：標題行，跳過`);
                                 continue;
                             }
 
+                            // 提取資料
                             const rowNum = row[0] ? String(row[0]).trim() : '';
                             const ipInfo = row[1] ? String(row[1]).trim() : '';
                             const connections = parseNumber(row[2]);
 
-                            if (row[0] === '總流量') {
+                            // 處理總流量和 Total
+                            if (String(row[0]).trim() === '總流量') {
                                 totalTraffic = parseNumber(row[1]);
                                 console.log('提取總流量:', totalTraffic);
                                 continue;
                             }
-                            if (row[0] === 'Total') {
+                            if (String(row[0]).trim() === 'Total') {
                                 totalConnections = parseNumber(row[1]);
                                 console.log('提取總連線數:', totalConnections);
                                 continue;
                             }
 
+                            // 驗證資料行
                             if (ipInfo && connections > 0) {
                                 console.log('識別為資料行:', { rowNum, ipInfo, connections });
                                 const ipMatch = ipInfo.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?:-([\w\d\-\/].*))?/);
@@ -214,7 +212,7 @@
                             let errorMsg = '未找到有效的 Top主機 資料。請確認：\n';
                             errorMsg += '- 資料包含 IP/帳號（例如 "10.101.16.195" 或 "10.101.16.195-帳號"）。\n';
                             errorMsg += '- 連線數為有效數字（例如 110）。\n';
-                            errorMsg += '- 標題行格式為 "編號 主機 總連線數"。\n';
+                            errorMsg += '- 標題行（若存在）格式為 "編號 主機 總連線數"。\n';
                             if (errors.length > 0) {
                                 errorMsg += '- 以下行有問題：\n  ' + errors.join('\n  ');
                             }
@@ -353,7 +351,6 @@
             );
         }
 
-        // 使用 React 18 的 createRoot 渲染
         try {
             const root = ReactDOM.createRoot(document.getElementById('root'));
             root.render(<App />);

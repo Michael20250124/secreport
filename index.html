@@ -80,28 +80,39 @@
             reader.onload = function(e) {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, { type: 'array' });
-                
-                // 指定讀取 "Report2" 分頁
-                const sheetName = 'Report2'; // 假設分頁名稱為 "Report2"
-                if (!workbook.SheetNames.includes(sheetName)) {
-                    alert('找不到 "Report2" 分頁，請確認 Excel 檔案！');
+
+                // 動態查找包含「中繼站」和「總連線數」的分頁
+                let sheetName;
+                for (const name of workbook.SheetNames) {
+                    const worksheet = workbook.Sheets[name];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                    if (jsonData.length > 0 && jsonData[0].includes('中繼站') && jsonData[0].includes('總連線數')) {
+                        sheetName = name;
+                        break;
+                    }
+                }
+                if (!sheetName) {
+                    alert('找不到包含「中繼站」和「總連線數」的分頁！可用分頁：' + workbook.SheetNames.join(', '));
                     return;
                 }
+
                 const worksheet = workbook.Sheets[sheetName];
                 const jsonData = XLSX.utils.sheet_to_json(worksheet);
+                console.log('原始數據：', jsonData);
 
                 // 解析數據，映射到 ip 和 connections，name 設為空字串
                 const parsedData = jsonData
-                    .filter(row => row['中繼站'] && row['總連線數'] && !isNaN(parseInt(row['總連線數']))) // 過濾無效行
+                    .filter(row => row['中繼站'])
                     .map(row => ({
                         ip: row['中繼站'],
-                        name: '', // Report2 無姓名欄位，設為空字串
-                        connections: parseInt(row['總連線數'])
+                        name: '',
+                        connections: row['總連線數'] ? parseInt(row['總連線數'].toString().replace(/,/g, '')) || 0 : 0
                     }));
+                console.log('過濾後數據：', parsedData);
 
                 // 如果沒有有效數據，顯示提示
                 if (parsedData.length === 0) {
-                    alert('Report2 分頁中沒有有效的數據！');
+                    alert('分頁 ' + sheetName + ' 中沒有有效的數據！');
                     return;
                 }
 
@@ -171,7 +182,7 @@
         function getFrequency(data, key) {
             const freq = {};
             data.forEach(item => {
-                if (item[key]) { // 確保 key 有值
+                if (item[key]) {
                     freq[item[key]] = (freq[item[key]] || 0) + 1;
                 }
             });

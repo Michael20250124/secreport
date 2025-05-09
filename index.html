@@ -25,7 +25,7 @@
             const [report, setReport] = useState(null);
             const [error, setError] = useState(null);
             const [loading, setLoading] = useState(false);
-            const [sheetName, setSheetName] = useState('');
+            const [sheetName, setSheetName] = useState('Report2');
             const [availableSheets, setAvailableSheets] = useState([]);
             const [file, setFile] = useState(null);
 
@@ -42,6 +42,14 @@
                     return `${account}${name}`;
                 }
                 return accountStr.trim();
+            };
+
+            // 處理數字格式（移除逗號）
+            const parseNumber = (value) => {
+                if (typeof value === 'string') {
+                    value = value.replace(/,/g, '');
+                }
+                return Number(value) || 0;
             };
 
             // 處理 Excel 檔案
@@ -120,18 +128,26 @@
                         let totalConnections = 0;
                         let foundData = false;
                         let errors = [];
+                        let skipHeader = true; // 假設第一行是標題
 
                         // 提取 Top主機 資料
                         for (let i = 0; i < json.length; i++) {
                             const row = json[i];
                             console.log(`處理第 ${i + 1} 行:`, row);
 
+                            // 跳過標題行（例如 "編號 主機 總連線數"）
+                            if (skipHeader && row[0] === '編號' && row[1] === '主機' && row[2] === '總連線數') {
+                                console.log('跳過標題行:', row);
+                                continue;
+                            }
+                            skipHeader = false;
+
                             // 檢查是否為資料行
                             const rowNum = row[0] ? String(row[0]).trim() : '';
                             const ipInfo = row[1] ? String(row[1]).trim() : '';
-                            const connections = row[2] ? Number(row[2]) : NaN;
+                            const connections = parseNumber(row[2]);
 
-                            if ((rowNum || ipInfo) && !isNaN(connections)) {
+                            if (ipInfo && !isNaN(connections) && connections > 0) {
                                 console.log('識別為資料行:', { rowNum, ipInfo, connections });
                                 const ipMatch = ipInfo.match(/^(\d+\.\d+\.\d+\.\d+)(?:-([\w\d\-\/].*))?/);
                                 if (ipMatch) {
@@ -142,33 +158,30 @@
                                         account: cleanAccountName(account),
                                         connections
                                     });
-                                } else if (ipInfo) {
+                                } else {
                                     dataRows.push({
                                         ipAddress: ipInfo,
                                         account: '未關聯特定帳號/姓名',
                                         connections
                                     });
-                                } else {
-                                    errors.push(`第 ${i + 1} 行：無有效 IP 地址`);
-                                    continue;
                                 }
                                 foundData = true;
                             } else if (row[0] === '總流量') {
-                                totalTraffic = Number(row[1]) || 0;
+                                totalTraffic = parseNumber(row[1]);
                                 console.log('提取總流量:', totalTraffic);
                             } else if (row[0] === 'Total') {
-                                totalConnections = Number(row[1]) || 0;
+                                totalConnections = parseNumber(row[1]);
                                 console.log('提取總連線數:', totalConnections);
-                            } else if (ipInfo || !isNaN(connections)) {
-                                errors.push(`第 ${i + 1} 行：格式無效（連線數應為數字，IP/帳號缺失）`);
+                            } else if (ipInfo || row[2]) {
+                                errors.push(`第 ${i + 1} 行：格式無效（IP/帳號：${ipInfo}, 連線數：${row[2]}）`);
                             }
                         }
 
                         if (!foundData) {
                             let errorMsg = '未找到有效的 Top主機 資料。請確認：\n';
-                            errorMsg += '- 資料包含編號（可選）、IP/帳號、連線數欄位。\n';
-                            errorMsg += '- IP/帳號欄位包含類似 "10.101.16.195" 或 "10.101.16.195-帳號" 的內容。\n';
+                            errorMsg += '- 資料包含 IP/帳號（例如 "10.101.16.195" 或 "10.101.16.195-帳號"）。\n';
                             errorMsg += '- 連線數為數字（例如 110）。\n';
+                            errorMsg += '- 標題行（若存在）格式為 "編號 主機 總連線數"。\n';
                             if (errors.length > 0) {
                                 errorMsg += '- 以下行有問題：\n  ' + errors.join('\n  ');
                             }
@@ -243,7 +256,7 @@
                         <div className="text-red-600 mb-4 whitespace-pre-line">
                             <p>{error}</p>
                             <p className="mt-2">
-                                請檢查 Excel 檔案格式，確保包含「Top主機」資料（編號、IP/帳號、連線數）。
+                                請檢查 Excel 檔案格式，確保 "Top主機" 資料位於正確工作表（例如 Report2），並包含 IP/帳號和連線數。
                                 <br />
                                 <a href="#" onClick={() => setError(null)} className="text-blue-600 underline">
                                     重新上傳

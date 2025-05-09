@@ -3,305 +3,152 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>資安數據分析網站</title>
+    <title>Excel Top 主機分析</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
-<body class="bg-gray-100 font-sans">
-    <div class="container mx-auto p-6">
-        <h1 class="text-3xl font-bold text-center mb-6">資安數據分析</h1>
-        
-        <!-- 上傳檔案與選擇區域 -->
-        <div class="mb-6 flex flex-col md:flex-row md:space-x-4">
-            <div class="flex-1 mb-4 md:mb-0">
-                <label for="fileInput" class="block text-lg font-medium mb-2">上傳Excel檔案</label>
-                <input type="file" id="fileInput" accept=".xlsx, .xls" class="block w-full text-sm text-gray-500
-                    file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0
-                    file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700
-                    hover:file:bg-blue-100" />
-            </div>
-            <div class="flex-1 mb-4 md:mb-0">
-                <label for="dateSelect" class="block text-lg font-medium mb-2">選擇日期</label>
-                <select id="dateSelect" class="block w-full p-2 border border-gray-300 rounded-md
-                    focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">請選擇日期</option>
-                </select>
-            </div>
-            <div class="flex-1">
-                <label for="rangeSelect" class="block text-lg font-medium mb-2">選擇時間範圍</label>
-                <select id="rangeSelect" class="block w-full p-2 border border-gray-300 rounded-md
-                    focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">顯示所有數據</option>
-                    <option value="10">最近10日</option>
-                    <option value="20">最近20日</option>
-                    <option value="30">最近30日</option>
-                </select>
-            </div>
-        </div>
+<body class="bg-gray-100 p-6">
+    <div id="root" class="max-w-4xl mx-auto"></div>
 
-        <!-- 圖表與統計區域 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <!-- IP重複統計圖表 -->
-            <div class="bg-white p-4 rounded-lg shadow">
-                <h2 class="text-xl font-semibold mb-4">中繼站重複統計</h2>
-                <canvas id="ipChart"></canvas>
-            </div>
-            <!-- 姓名重複統計圖表 -->
-            <div class="bg-white p-4 rounded-lg shadow">
-                <h2 class="text-xl font-semibold mb-4">姓名重複統計</h2>
-                <canvas id="nameChart"></canvas>
-            </div>
-            <!-- 連線數總計圖表 -->
-            <div class="bg-white p-4 rounded-lg shadow">
-                <h2 class="text-xl font-semibold mb-4">每日連線數總計</h2>
-                <canvas id="connectionChart"></canvas>
-            </div>
-            <!-- 數據表格 -->
-            <div class="bg-white p-4 rounded-lg shadow">
-                <h2 class="text-xl font-semibold mb-4">數據總覽</h2>
-                <div id="dataTable" class="overflow-x-auto"></div>
-            </div>
-        </div>
-    </div>
+    <script type="text/babel">
+        const { useState } = React;
 
-    <script>
-        // 儲存每日數據
-        let dailyData = [];
-        let selectedDate = '';
-        let selectedRange = '';
+        function App() {
+            const [report, setReport] = useState(null);
+            const [error, setError] = useState(null);
 
-        // 處理檔案上傳
-        document.getElementById('fileInput').addEventListener('change', handleFile, false);
-
-        function handleFile(e) {
-            const file = e.target.files[0];
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-
-                // 動態查找包含「中繼站」和「總連線數」的分頁
-                let sheetName;
-                for (const name of workbook.SheetNames) {
-                    const worksheet = workbook.Sheets[name];
-                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-                    if (jsonData.length > 0 && jsonData[0].includes('中繼站') && jsonData[0].includes('總連線數')) {
-                        sheetName = name;
-                        break;
-                    }
+            // 清理帳號名稱，移除組織層級資訊
+            const cleanAccountName = (accountStr) => {
+                if (!accountStr || accountStr === 'N/A') return '未關聯特定帳號/姓名';
+                const match = accountStr.match(/^([\w\d\-\/]+)\s*(.*?\([^\)]+\))?\s*(\(.*\))?$/);
+                if (match) {
+                    const account = match[1].trim();
+                    const name = match[2] ? match[2].trim() : '';
+                    return `${account}${name}`;
                 }
-                if (!sheetName) {
-                    alert('找不到包含「中繼站」和「總連線數」的分頁！可用分頁：' + workbook.SheetNames.join(', '));
-                    return;
-                }
-
-                const worksheet = workbook.Sheets[sheetName];
-                const jsonData = XLSX.utils.sheet_to_json(worksheet);
-                console.log('原始數據：', jsonData);
-
-                // 解析數據，映射到 ip 和 connections，name 設為空字串
-                const parsedData = jsonData
-                    .filter(row => row['中繼站'])
-                    .map(row => ({
-                        ip: row['中繼站'],
-                        name: '',
-                        connections: row['總連線數'] ? parseInt(row['總連線數'].toString().replace(/,/g, '')) || 0 : 0
-                    }));
-                console.log('過濾後數據：', parsedData);
-
-                // 如果沒有有效數據，顯示提示
-                if (parsedData.length === 0) {
-                    alert('分頁 ' + sheetName + ' 中沒有有效的數據！');
-                    return;
-                }
-
-                // 將數據添加到每日數據中
-                const date = new Date().toISOString().split('T')[0];
-                dailyData.push({ date, data: parsedData });
-
-                // 更新日期選單
-                updateDateSelect();
-
-                // 預設顯示最新上傳的數據
-                selectedDate = date;
-                document.getElementById('dateSelect').value = date;
-
-                // 更新圖表和表格
-                updateCharts();
-                updateTable();
+                return accountStr.trim();
             };
-            reader.readAsArrayBuffer(file);
-        }
 
-        // 更新日期選單
-        function updateDateSelect() {
-            const dateSelect = document.getElementById('dateSelect');
-            dateSelect.innerHTML = '<option value="">請選擇日期</option>';
-            const dates = [...new Set(dailyData.map(d => d.date))].sort().reverse();
-            dates.forEach(date => {
-                const option = document.createElement('option');
-                option.value = date;
-                option.textContent = date;
-                dateSelect.appendChild(option);
-            });
-        }
+            // 處理 Excel 檔案
+            const handleFileUpload = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
 
-        // 監聽日期選擇變化
-        document.getElementById('dateSelect').addEventListener('change', function() {
-            selectedDate = this.value;
-            if (selectedDate) {
-                selectedRange = '';
-                document.getElementById('rangeSelect').value = '';
-            }
-            updateCharts();
-            updateTable();
-        });
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const sheet = workbook.Sheets['Report2'];
+                        if (!sheet) throw new Error('未找到 "Report2" 工作表');
 
-        // 監聽時間範圍選擇變化
-        document.getElementById('rangeSelect').addEventListener('change', function() {
-            selectedRange = this.value;
-            if (selectedRange) {
-                selectedDate = '';
-                document.getElementById('dateSelect').value = '';
-            }
-            updateCharts();
-            updateTable();
-        });
+                        const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                        let dataRows = [];
+                        let totalTraffic = 0;
+                        let totalConnections = 0;
 
-        // 根據時間範圍過濾數據
-        function filterDataByRange(data, days) {
-            if (!days) return data;
-            const cutoffDate = new Date();
-            cutoffDate.setDate(cutoffDate.getDate() - parseInt(days));
-            const cutoffStr = cutoffDate.toISOString().split('T')[0];
-            return data.filter(d => d.date >= cutoffStr);
-        }
+                        // 提取 Top主機 資料
+                        for (let row of json) {
+                            if (row[0] && !isNaN(row[0]) && Number.isInteger(Number(row[0]))) {
+                                const ipInfo = row[1] ? String(row[1]).trim() : '';
+                                const connections = Number(row[2]) || 0;
+                                const ipMatch = ipInfo.match(/^(\d+\.\d+\.\d+\.\d+)(?:-([\w\d\-\/].*))?/);
+                                if (ipMatch) {
+                                    const ip = ipMatch[1];
+                                    const account = ipMatch[2] || null;
+                                    dataRows.push({
+                                        ipAddress: ip,
+                                        account: cleanAccountName(account),
+                                        connections
+                                    });
+                                } else {
+                                    dataRows.push({
+                                        ipAddress: ipInfo,
+                                        account: '未關聯特定帳號/姓名',
+                                        connections
+                                    });
+                                }
+                            }
+                            if (row[0] === '總流量') totalTraffic = Number(row[1]) || 0;
+                            if (row[0] === 'Total') totalConnections = Number(row[1]) || 0;
+                        }
 
-        // 統計IP和姓名重複次數
-        function getFrequency(data, key) {
-            const freq = {};
-            data.forEach(item => {
-                if (item[key]) {
-                    freq[item[key]] = (freq[item[key]] || 0) + 1;
-                }
-            });
-            return freq;
-        }
-
-        // 更新圖表
-        let ipChartInstance, nameChartInstance, connectionChartInstance;
-
-        function updateCharts() {
-            let displayData = dailyData;
-            if (selectedDate) {
-                displayData = dailyData.filter(d => d.date === selectedDate);
-            } else if (selectedRange) {
-                displayData = filterDataByRange(dailyData, selectedRange);
-            }
-            const allData = displayData.flatMap(d => d.data);
-            const ipFreq = getFrequency(allData, 'ip');
-            const nameFreq = getFrequency(allData, 'name');
-            const dailyConnections = displayData.map(d => ({
-                date: d.date,
-                total: d.data.reduce((sum, item) => sum + item.connections, 0)
-            }));
-
-            // 銷毀現有圖表
-            if (ipChartInstance) ipChartInstance.destroy();
-            if (nameChartInstance) nameChartInstance.destroy();
-            if (connectionChartInstance) connectionChartInstance.destroy();
-
-            // IP重複統計圖表
-            ipChartInstance = new Chart(document.getElementById('ipChart'), {
-                type: 'bar',
-                data: {
-                    labels: Object.keys(ipFreq),
-                    datasets: [{
-                        label: '中繼站重複次數',
-                        data: Object.values(ipFreq),
-                        backgroundColor: 'rgba(75, 192, 192, 0.6)'
-                    }]
-                },
-                options: {
-                    scales: { y: { beginAtZero: true } }
-                }
-            });
-
-            // 姓名重複統計圖表（如果無數據則隱藏）
-            const nameChartCanvas = document.getElementById('nameChart');
-            const nameChartContainer = nameChartCanvas.parentElement;
-            if (Object.keys(nameFreq).length === 0) {
-                nameChartContainer.innerHTML = '<p class="text-center text-gray-500">無姓名數據可顯示</p>';
-            } else {
-                nameChartInstance = new Chart(nameChartCanvas, {
-                    type: 'bar',
-                    data: {
-                        labels: Object.keys(nameFreq),
-                        datasets: [{
-                            label: '姓名重複次數',
-                            data: Object.values(nameFreq),
-                            backgroundColor: 'rgba(255, 99, 132, 0.6)'
-                        }]
-                    },
-                    options: {
-                        scales: { y: { beginAtZero: true } }
+                        // 生成報表資料
+                        setReport({
+                            rows: dataRows,
+                            totalTraffic,
+                            totalConnections,
+                            date: new Date().toISOString().split('T')[0]
+                        });
+                        setError(null);
+                    } catch (err) {
+                        setError(`處理檔案時出錯：${err.message}`);
+                        setReport(null);
                     }
-                });
-            }
+                };
+                reader.readAsArrayBuffer(file);
+            };
 
-            // 連線數總計圖表
-            connectionChartInstance = new Chart(document.getElementById('connectionChart'), {
-                type: 'line',
-                data: {
-                    labels: dailyConnections.map(d => d.date),
-                    datasets: [{
-                        label: '每日連線數',
-                        data: dailyConnections.map(d => d.total),
-                        borderColor: 'rgba(54, 162, 235, 1)',
-                        fill: false
-                    }]
-                },
-                options: {
-                    scales: { y: { beginAtZero: true } }
-                }
-            });
+            return (
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h1 className="text-2xl font-bold mb-4">Excel Top 主機分析</h1>
+                    <div className="mb-4">
+                        <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 mb-2">
+                            上傳 Excel 檔案
+                        </label>
+                        <input
+                            id="file-upload"
+                            type="file"
+                            accept=".xls,.xlsx"
+                            onChange={handleFileUpload}
+                            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                        />
+                    </div>
+                    {error && <p className="text-red-600 mb-4">{error}</p>}
+                    {report && (
+                        <div>
+                            <h2 className="text-xl font-semibold mb-2">應用管理 Top 主機分析 - {report.date}</h2>
+                            <p className="mb-4">以下是從 "Top主機" 部分提取的 IP 地址、帳號與姓名資訊及連線總數。</p>
+                            <table className="w-full border-collapse border border-gray-300 mb-6">
+                                <thead>
+                                    <tr className="bg-gray-200">
+                                        <th className="border border-gray-300 p-2">IP 地址</th>
+                                        <th className="border border-gray-300 p-2">帳號與姓名資訊</th>
+                                        <th className="border border-gray-300 p-2">連線總數</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {report.rows.map((row, index) => (
+                                        <tr key={index}>
+                                            <td className="border border-gray-300 p-2">{row.ipAddress}</td>
+                                            <td className="border border-gray-300 p-2">{row.account}</td>
+                                            <td className="border border-gray-300 p-2">{row.connections}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            <h3 className="text-lg font-semibold mb-2">摘要</h3>
+                            <ul className="list-disc pl-5">
+                                <li><strong>總流量 (總流量):</strong> {report.totalTraffic}</li>
+                                <li><strong>總連線數 (Total):</strong> {report.totalConnections}</li>
+                                <li><strong>觀察:</strong>
+                                    <ul className="list-circle pl-5">
+                                        <li>IP <code>{report.rows[0].ipAddress}</code> (關聯於 {report.rows[0].account}) 擁有最高連線數 {report.rows[0].connections}。</li>
+                                        <li>多個 IP (例如 <code>{report.rows.find(row => row.account === '未關聯特定帳號/姓名')?.ipAddress || 'N/A'}</code> 等) 未關聯特定帳號或姓名，可能為未分配或通用設備。</li>
+                                        <li>前三個有帳號資訊的 IP 分別屬於 {report.rows.filter(row => row.account !== '未關聯特定帳號/姓名').slice(0, 3).map(row => row.account).join(', ')}，連線數分別為 {report.rows.filter(row => row.account !== '未關聯特定帳號/姓名').slice(0, 3).map(row => row.connections).join(', ')}。</li>
+                                    </ul>
+                                </li>
+                            </ul>
+                        </div>
+                    )}
+                </div>
+            );
         }
 
-        // 更新數據表格
-        function updateTable() {
-            let displayData = dailyData;
-            if (selectedDate) {
-                displayData = dailyData.filter(d => d.date === selectedDate);
-            } else if (selectedRange) {
-                displayData = filterDataByRange(dailyData, selectedRange);
-            }
-
-            const table = document.createElement('table');
-            table.className = 'min-w-full divide-y divide-gray-200';
-            table.innerHTML = `
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">日期</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">中繼站</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">姓名</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">連線數</th>
-                    </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                    ${displayData.flatMap(d => d.data.map(row => `
-                        <tr>
-                            <td class="px-6 py-4 whitespace-nowrap">${d.date}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${row.ip}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${row.name || '-'}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">${row.connections}</td>
-                        </tr>
-                    `)).join('')}
-                </tbody>
-            `;
-            document.getElementById('dataTable').innerHTML = '';
-            document.getElementById('dataTable').appendChild(table);
-        }
+        ReactDOM.render(<App />, document.getElementById('root'));
     </script>
 </body>
 </html>

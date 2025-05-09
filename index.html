@@ -70,8 +70,13 @@
                 return (
                     first.includes('編號') &&
                     second.includes('主機') &&
-                    third.includes('連線數')
+                    third.includes('連線')
                 );
+            };
+
+            // 檢查是否為 IP 地址
+            const isIPAddress = (str) => {
+                return /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?:-.*)?$/.test(str);
             };
 
             // 處理 Excel 檔案
@@ -93,7 +98,7 @@
                     try {
                         const data = new Uint8Array(e.target.result);
                         console.log('檔案讀取完成，開始解析 Excel');
-                        const workbook = XLSX.read(data, { type: 'array' });
+                        const workbook = XLSX.read(data, { type: 'array', cellText: false, cellDates: true });
                         console.log('工作表列表:', workbook.SheetNames);
 
                         setAvailableSheets(workbook.SheetNames);
@@ -135,7 +140,7 @@
                     try {
                         const data = new Uint8Array(e.target.result);
                         console.log('開始解析工作表:', sheetName);
-                        const workbook = XLSX.read(data, { type: 'array' });
+                        const workbook = XLSX.read(data, { type: 'array', cellText: false, cellDates: true });
                         const sheet = workbook.Sheets[sheetName];
                         if (!sheet) {
                             throw new Error(`無法載入工作表: ${sheetName}`);
@@ -166,25 +171,25 @@
                                 continue;
                             }
 
-                            // 提取資料
+                            // 提取資料（放寬條件）
                             const rowNum = row[0] ? String(row[0]).trim() : '';
                             const ipInfo = row[1] ? String(row[1]).trim() : '';
                             const connections = parseNumber(row[2]);
 
                             // 處理總流量和 Total
-                            if (String(row[0]).trim() === '總流量') {
+                            if (String(row[0]).trim().toLowerCase() === '總流量') {
                                 totalTraffic = parseNumber(row[1]);
                                 console.log('提取總流量:', totalTraffic);
                                 continue;
                             }
-                            if (String(row[0]).trim() === 'Total') {
+                            if (String(row[0]).trim().toLowerCase() === 'total') {
                                 totalConnections = parseNumber(row[1]);
                                 console.log('提取總連線數:', totalConnections);
                                 continue;
                             }
 
-                            // 驗證資料行
-                            if (ipInfo && connections > 0) {
+                            // 驗證資料行（只需要 IP 和有效連線數）
+                            if (ipInfo && isIPAddress(ipInfo) && connections > 0) {
                                 console.log('識別為資料行:', { rowNum, ipInfo, connections });
                                 const ipMatch = ipInfo.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?:-([\w\d\-\/].*))?/);
                                 if (ipMatch) {
@@ -204,7 +209,7 @@
                                 }
                                 foundData = true;
                             } else {
-                                errors.push(`第 ${i + 1} 行：無效（IP/帳號：${ipInfo}, 連線數：${row[2]}）`);
+                                errors.push(`第 ${i + 1} 行：無效（IP/帳號：${ipInfo}, 連線數：${row[2] || ''}）`);
                             }
                         }
 
@@ -212,7 +217,8 @@
                             let errorMsg = '未找到有效的 Top主機 資料。請確認：\n';
                             errorMsg += '- 資料包含 IP/帳號（例如 "10.101.16.195" 或 "10.101.16.195-帳號"）。\n';
                             errorMsg += '- 連線數為有效數字（例如 110）。\n';
-                            errorMsg += '- 標題行（若存在）格式為 "編號 主機 總連線數"。\n';
+                            errorMsg += '- 標題行（若存在）格式類似 "編號 主機 總連線數"。\n';
+                            errorMsg += '- 資料是否在 "Report2"，或位於其他工作表（Report0, Report1）。\n';
                             if (errors.length > 0) {
                                 errorMsg += '- 以下行有問題：\n  ' + errors.join('\n  ');
                             }
@@ -230,7 +236,7 @@
                         setLoading(false);
                     } catch (err) {
                         console.error('解析錯誤:', err);
-                        setError(`處理工作表 "${sheetName}" 時出錯：${err.message}\n可用工作表：${availableSheets.join(', ')}`);
+                        setError(`處理工作表 "${sheetName}" 時出錯：${err.message}\n可用工作表：${availableSheets.join(', ')}\n請檢查控制台日誌以查看工作表內容。`);
                         setLoading(false);
                     }
                 };
@@ -286,7 +292,9 @@
                         <div className="text-red-600 mb-4 whitespace-pre-line">
                             <p>{error}</p>
                             <p className="mt-2">
-                                請檢查 Excel 檔案格式，確保 "Top主機" 資料位於 "Report2"，包含 IP/帳號和連線數。
+                                請檢查 Excel 檔案格式，確保 "Top主機" 資料位於正確工作表（例如 Report2），並包含 IP/帳號和連線數。
+                                <br />
+                                檢查控制台日誌（F12 > Console）中的 JSON 資料，確認工作表內容。
                                 <br />
                                 <a href="#" onClick={() => setError(null)} className="text-blue-600 underline">
                                     重新上傳

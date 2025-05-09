@@ -35,21 +35,30 @@
                 if (!accountStr || accountStr === 'N/A' || typeof accountStr !== 'string') {
                     return '未關聯特定帳號/姓名';
                 }
-                const match = accountStr.match(/^([\w\d\-\/]+)\s*(.*?\([^\)]+\))?\s*(\(.*\))?$/);
-                if (match) {
-                    const account = match[1].trim();
-                    const name = match[2] ? match[2].trim() : '';
-                    return `${account}${name}`;
-                }
-                return accountStr.trim();
+                // 放寬帳號提取，保留主要帳號和姓名
+                const match = accountStr.match(/^([\w\d\-\/]+.*?)(?:\s*\(.*\))?$/);
+                return match ? match[1].trim() : accountStr.trim();
             };
 
-            // 處理數字格式（移除逗號）
+            // 處理數字格式（移除逗號，處理空值）
             const parseNumber = (value) => {
+                if (value === '' || value === null || value === undefined) return 0;
                 if (typeof value === 'string') {
                     value = value.replace(/,/g, '');
                 }
                 return Number(value) || 0;
+            };
+
+            // 檢查是否為標題行
+            const isHeaderRow = (row) => {
+                const first = String(row[0]).trim().toLowerCase();
+                const second = String(row[1]).trim().toLowerCase();
+                const third = String(row[2]).trim().toLowerCase();
+                return (
+                    first.includes('編號') &&
+                    second.includes('主機') &&
+                    third.includes('連線數')
+                );
             };
 
             // 處理 Excel 檔案
@@ -77,7 +86,7 @@
                         // 更新可用工作表列表
                         setAvailableSheets(workbook.SheetNames);
                         if (!sheetName && workbook.SheetNames.length > 0) {
-                            setSheetName(workbook.SheetNames[0]);
+                            setSheetName('Report2'); // 預設 Report2
                         }
 
                         setLoading(false);
@@ -128,28 +137,46 @@
                         let totalConnections = 0;
                         let foundData = false;
                         let errors = [];
-                        let skipHeader = true; // 假設第一行是標題
 
                         // 提取 Top主機 資料
                         for (let i = 0; i < json.length; i++) {
                             const row = json[i];
                             console.log(`處理第 ${i + 1} 行:`, row);
 
-                            // 跳過標題行（例如 "編號 主機 總連線數"）
-                            if (skipHeader && row[0] === '編號' && row[1] === '主機' && row[2] === '總連線數') {
-                                console.log('跳過標題行:', row);
+                            // 跳過空行
+                            if (!row[0] && !row[1] && !row[2]) {
+                                console.log(`第 ${i + 1} 行：空行，跳過`);
                                 continue;
                             }
-                            skipHeader = false;
+
+                            // 跳過標題行
+                            if (isHeaderRow(row)) {
+                                console.log(`第 ${i + 1} 行：標題行，跳過`);
+                                continue;
+                            }
 
                             // 檢查是否為資料行
                             const rowNum = row[0] ? String(row[0]).trim() : '';
                             const ipInfo = row[1] ? String(row[1]).trim() : '';
                             const connections = parseNumber(row[2]);
 
-                            if (ipInfo && !isNaN(connections) && connections > 0) {
+                            // 檢查是否為總流量或 Total 行
+                            if (row[0] === '總流量') {
+                                totalTraffic = parseNumber(row[1]);
+                                console.log('提取總流量:', totalTraffic);
+                                continue;
+                            }
+                            if (row[0] === 'Total') {
+                                totalConnections = parseNumber(row[1]);
+                                console.log('提取總連線數:', totalConnections);
+                                continue;
+                            }
+
+                            // 驗證資料行（需要 IP 和有效連線數）
+                            if (ipInfo && connections > 0) {
                                 console.log('識別為資料行:', { rowNum, ipInfo, connections });
-                                const ipMatch = ipInfo.match(/^(\d+\.\d+\.\d+\.\d+)(?:-([\w\d\-\/].*))?/);
+                                // 放寬 IP 提取邏輯
+                                const ipMatch = ipInfo.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?:-([\w\d\-\/].*))?/);
                                 if (ipMatch) {
                                     const ip = ipMatch[1];
                                     const account = ipMatch[2] || null;
@@ -159,6 +186,7 @@
                                         connections
                                     });
                                 } else {
+                                    // 如果無 IP 格式，視為純 IP 或其他主機
                                     dataRows.push({
                                         ipAddress: ipInfo,
                                         account: '未關聯特定帳號/姓名',
@@ -166,22 +194,16 @@
                                     });
                                 }
                                 foundData = true;
-                            } else if (row[0] === '總流量') {
-                                totalTraffic = parseNumber(row[1]);
-                                console.log('提取總流量:', totalTraffic);
-                            } else if (row[0] === 'Total') {
-                                totalConnections = parseNumber(row[1]);
-                                console.log('提取總連線數:', totalConnections);
-                            } else if (ipInfo || row[2]) {
-                                errors.push(`第 ${i + 1} 行：格式無效（IP/帳號：${ipInfo}, 連線數：${row[2]}）`);
+                            } else {
+                                errors.push(`第 ${i + 1} 行：無效（IP/帳號：${ipInfo}, 連線數：${row[2]}）`);
                             }
                         }
 
                         if (!foundData) {
                             let errorMsg = '未找到有效的 Top主機 資料。請確認：\n';
                             errorMsg += '- 資料包含 IP/帳號（例如 "10.101.16.195" 或 "10.101.16.195-帳號"）。\n';
-                            errorMsg += '- 連線數為數字（例如 110）。\n';
-                            errorMsg += '- 標題行（若存在）格式為 "編號 主機 總連線數"。\n';
+                            errorMsg += '- 連線數為有效數字（例如 110）。\n';
+                            errorMsg += '- 標題行格式為 "編號 主機 總連線數"。\n';
                             if (errors.length > 0) {
                                 errorMsg += '- 以下行有問題：\n  ' + errors.join('\n  ');
                             }
@@ -192,141 +214,105 @@
 
                         // 生成報表資料
                         setReport({
-                            rows: dataRows,
-                            totalTraffic,
-                            totalConnections,
-                            date: new Date().toISOString().split('T')[0]
-                        });
-                        setLoading(false);
-                    } catch (err) {
-                        console.error('解析錯誤:', err);
-                        setError(`處理工作表 "${sheetName}" 時出錯：${err.message}\n可用工作表：${availableSheets.join(', ')}`);
-                        setLoading(false);
-                    }
-                };
-                reader.onerror = () => {
-                    setError('無法讀取檔案，請確保檔案格式正確');
-                    setLoading(false);
-                };
-                reader.readAsArrayBuffer(file);
-            };
+                           簡介: 你的 Excel 檔案（`AFLog-20250508-010229.xls`）包含三個工作表：Report0（Top用戶）、Report1（Top中繼站）、Report2（Top主機）。本應用專為解析 "Report2" 的「Top主機」資料設計，顯示 IP 地址、帳號與姓名（排除組織層級資訊）、連線總數。
 
-            return (
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h1 className="text-2xl font-bold mb-4">Excel Top 主機分析</h1>
-                    <div className="mb-4">
-                        <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 mb-2">
-                            上傳 Excel 檔案 (.xls 或 .xlsx)
-                        </label>
-                        <input
-                            id="file-upload"
-                            type="file"
-                            accept=".xls,.xlsx"
-                            onChange={handleFileUpload}
-                            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                        />
-                    </div>
-                    {availableSheets.length > 0 && (
-                        <div className="mb-4">
-                            <label htmlFor="sheet-name" className="block text-sm font-medium text-gray-700 mb-2">
-                                選擇工作表
-                            </label>
-                            <select
-                                id="sheet-name"
-                                value={sheetName}
-                                onChange={(e) => setSheetName(e.target.value)}
-                                className="block w-full p-2 border border-gray-300 rounded-md"
-                            >
-                                {availableSheets.map((sheet) => (
-                                    <option key={sheet} value={sheet}>
-                                        {sheet}
-                                    </option>
-                                ))}
-                            </select>
-                            <button
-                                onClick={parseSheet}
-                                className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                            >
-                                解析工作表
-                            </button>
-                        </div>
-                    )}
-                    {loading && <p className="text-blue-600 mb-4">正在處理檔案，請稍候...</p>}
-                    {error && (
-                        <div className="text-red-600 mb-4 whitespace-pre-line">
-                            <p>{error}</p>
-                            <p className="mt-2">
-                                請檢查 Excel 檔案格式，確保 "Top主機" 資料位於正確工作表（例如 Report2），並包含 IP/帳號和連線數。
-                                <br />
-                                <a href="#" onClick={() => setError(null)} className="text-blue-600 underline">
-                                    重新上傳
-                                </a>
-                            </p>
-                        </div>
-                    )}
-                    {report && (
-                        <div>
-                            <h2 className="text-xl font-semibold mb-2">應用管理 Top 主機分析 - {report.date}</h2>
-                            <p className="mb-4">以下是從 "Top主機" 部分提取的 IP 地址、帳號與姓名資訊及連線總數。</p>
-                            <table className="w-full border-collapse border border-gray-300 mb-6">
-                                <thead>
-                                    <tr className="bg-gray-200">
-                                        <th className="border border-gray-300 p-2">IP 地址</th>
-                                        <th className="border border-gray-300 p-2">帳號與姓名資訊</th>
-                                        <th className="border border-gray-300 p-2">連線總數</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {report.rows.map((row, index) => (
-                                        <tr key={index}>
-                                            <td className="border border-gray-300 p-2">{row.ipAddress}</td>
-                                            <td className="border border-gray-300 p-2">{row.account}</td>
-                                            <td className="border border-gray-300 p-2">{row.connections}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                            <h3 className="text-lg font-semibold mb-2">摘要</h3>
-                            <ul className="list-disc pl-5">
-                                <li><strong>總流量 (總流量):</strong> {report.totalTraffic}</li>
-                                <li><strong>總連線數 (Total):</strong> {report.totalConnections}</li>
-                                <li><strong>觀察:</strong>
-                                    <ul className="list-circle pl-5">
-                                        <li>IP <code>{report.rows[0].ipAddress}</code> (關聯於 {report.rows[0].account}) 擁有最高連線數 {report.rows[0].connections}。</li>
-                                        <li>
-                                            多個 IP (例如 <code>
-                                            {report.rows.find(row => row.account === '未關聯特定帳號/姓名')?.ipAddress || 'N/A'}
-                                            </code> 等) 未關聯特定帳號或姓名，可能為未分配或通用設備。
-                                        </li>
-                                        <li>
-                                            前三個有帳號資訊的 IP 分別屬於{' '}
-                                            {report.rows
-                                                .filter(row => row.account !== '未關聯特定帳號/姓名')
-                                                .slice(0, 3)
-                                                .map(row => row.account)
-                                                .join(', ') || '無'},
-                                            連線數分別為{' '}
-                                            {report.rows
-                                                .filter(row => row.account !== '未關聯特定帳號/姓名')
-                                                .slice(0, 3)
-                                                .map(row => row.connections)
-                                                .join(', ') || '無'}。
-                                        </li>
-                                    </ul>
-                                </li>
-                            </ul>
-                        </div>
-                    )}
-                </div>
-            );
-        }
+## 功能
 
-        // 確認 ReactDOM 是否可用
-        if (typeof ReactDOM === 'undefined') {
-            console.error('ReactDOM 未載入，請檢查 CDN 或使用本地資源');
-        } else {
-            ReactDOM.render(<App />, document.getElementById('root'));
-        }
-    </script>
-</body>
-</html>
+- **上傳 Excel**：支援 `.xls` 或 `.xlsx` 檔案。
+- **工作表選擇**：上傳後選擇工作表（預設 Report2）。
+- **解析資料**：自動跳過標題行，提取 "Top主機" 的 IP、帳號、連線數。
+- **生成報表**：顯示表格和摘要（總流量、總連線數、觀察）。
+- **美化介面**：使用 Tailwind CSS，確保響應式和易讀。
+- **錯誤處理**：詳細錯誤訊息，提示資料或工作表問題。
+
+## 部署到 GitHub Pages
+
+1. **創建倉庫**：
+   - 在 GitHub 上創建一個新倉庫（例如 `excel-top-hosts-analysis`）。
+
+2. **添加文件**：
+   - 將 `index.html` 保存到倉庫根目錄。
+   - 將此 `README.md` 添加到倉庫。
+
+3. **推送到 GitHub**：
+   ```bash
+   git init
+   git add index.html README.md
+   git commit -m "修復 Top主機 資料解析，優化標題行和連線數處理"
+   git branch -M main
+   git remote add origin <你的倉庫URL>
+   git push -u origin main
+   ```
+
+4. **啟用 GitHub Pages**：
+   - 進入倉庫的 **Settings** > **Pages**。
+   - 在 **Source** 下選擇 `main` 分支，資料夾選擇 `/ (root)`，點擊 **Save**。
+   - 等待幾分鐘，訪問生成的 URL（例如 `https://<你的用戶名>.github.io/excel-top-hosts-analysis`）。
+
+5. **訪問應用**：
+   - 上傳 `AFLog-20250508-010229.xls`，選擇 "Report2"，點擊「解析工作表」。
+   - 確認報表顯示 IP、帳號、連線數。
+
+## 使用方法
+
+1. 訪問 GitHub Pages 網址。
+2. 點擊「上傳 Excel 檔案」，選擇 `AFLog-20250508-010229.xls`。
+3. 從「選擇工作表」下拉選單選擇 "Report2"。
+4. 點擊「解析工作表」。
+5. 報表應顯示：
+   - **表格**：IP 地址、帳號與姓名、連線總數。
+   - **摘要**：總流量（572）、總連線數（633）、觀察。
+6. 若報表未顯示，檢查錯誤訊息並參考「問題排查」。
+
+## 問題排查
+
+若顯示「未找到有效的 Top主機 資料」，請檢查：
+
+1. **控制台日誌**：
+   - 按 F12 開啟「Console」。
+   - 上傳檔案並解析 "Report2"，複製日誌（JSON 資料、行處理、錯誤訊息）。
+   - 分享日誌以診斷問題。
+
+2. **驗證 Excel 檔案**：
+   - 打開 `AFLog-20250508-010229.xls`，檢查 "Report2"：
+     - 第一行：標題（`編號 主機 總連線數`）。
+     - 資料行：
+       - 第一列：編號（例如 `1`, `2`）。
+       - 第二列：IP 或 IP-帳號（例如 `10.101.16.195-10007643-Ian Lu...`）。
+       - 第三列：連線數（例如 `110`）。
+     - 最後：`總流量` 和 `Total`。
+   - 確認無額外空白行或標題。
+
+3. **測試範例檔案**：
+   - 創建 `test.xlsx`，包含以下資料（工作表名 "Report2"）：
+     ```
+     編號 主機 總連線數
+     1 10.101.16.195-10007643-Ian Lu (QA_DQE-盧宗彯)... 110
+     2 10.101.12.42 108
+     3 10.101.16.187-10007063-Joe Liao (ACC-RD2-RF-廖偉盛)... 96
+     總流量 572
+     Total 633
+     ```
+   - 上傳並選擇 "Report2"，確認報表。
+
+4. **檢查 CDN**：
+   - 確保可訪問：
+     - `https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js`
+     - `https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js`
+     - `https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.9/babel.min.js`
+     - `https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js`
+   - 若失敗，下載至 `libs` 目錄，更新 `index.html` 使用本地路徑。
+
+5. **重新部署**：
+   ```bash
+   git add index.html README.md
+   git commit -m "修復解析問題"
+   git push origin main
+   ```
+   - 清除瀏覽器快取（Ctrl+Shift+R）並重新訪問。
+
+## 注意事項
+
+- **Excel 格式**：確保 "Report2" 包含正確的「Top主機」資料。
+- **工作表選擇**：選擇 "Report2"。Report0 和 Report1 包含其他資料（Top用戶、Top中繼站）。
+- **報表保存**：報表僅顯示於網頁，可手動複製或另存為 HTML。

@@ -6,17 +6,26 @@
     <style>
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
-            max-width: 1000px;
-            margin: 20px auto;
-            padding: 20px;
+            margin: 20px;
             background-color: #f5f7fa;
         }
         .upload-section, .controls-section {
             background: white;
-            padding: 30px;
+            padding: 20px;
             border-radius: 10px;
             box-shadow: 0 2px 15px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
+            margin-bottom: 20px;
+        }
+        .main-container {
+            display: flex;
+            gap: 20px;
+        }
+        .left-panel, .right-panel {
+            flex: 1;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
         }
         #fileInput {
             display: none;
@@ -33,33 +42,32 @@
         .custom-upload-btn:hover {
             background: #45a049;
         }
-        #resultTable {
+        table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 20px;
-            background: white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-top: 10px;
         }
-        #resultTable th {
+        th {
             background: #2196F3;
             color: white;
-            padding: 15px;
+            padding: 10px;
             text-align: left;
         }
-        #resultTable td {
-            padding: 12px;
+        td {
+            padding: 10px;
             border-bottom: 1px solid #eee;
         }
-        #resultTable tr:hover {
+        tr:hover {
             background-color: #f5f5f5;
         }
         .status {
-            margin-top: 15px;
+            margin-top: 10px;
             color: #666;
         }
         select {
-            margin-right: 10px;
+            margin-bottom: 10px;
             padding: 8px;
+            width: 100%;
         }
     </style>
 </head>
@@ -71,30 +79,44 @@
         <div class="status" id="status"></div>
     </div>
 
-    <div class="controls-section">
-        <label>選擇日期：</label>
-        <select id="dateSelector"></select>
+    <div class="main-container">
+        <div class="left-panel">
+            <label>選擇日期：</label>
+            <select id="dateSelector"></select>
+            <table id="dateResultTable">
+                <thead>
+                    <tr>
+                        <th>編號</th>
+                        <th>IP地址</th>
+                        <th>帳號與姓名</th>
+                        <th>總連線數</th>
+                    </tr>
+                </thead>
+                <tbody id="dateTableBody"></tbody>
+            </table>
+        </div>
 
-        <label>統計期間：</label>
-        <select id="rangeSelector">
-            <option value="0">請選擇</option>
-            <option value="10">10 天內</option>
-            <option value="20">20 天內</option>
-            <option value="30">30 天內</option>
-        </select>
+        <div class="right-panel">
+            <label>統計期間：</label>
+            <select id="rangeSelector">
+                <option value="0">請選擇</option>
+                <option value="10">10 天內</option>
+                <option value="20">20 天內</option>
+                <option value="30">30 天內</option>
+            </select>
+            <table id="rangeResultTable">
+                <thead>
+                    <tr>
+                        <th>編號</th>
+                        <th>IP地址</th>
+                        <th>帳號與姓名</th>
+                        <th>出現次數</th>
+                    </tr>
+                </thead>
+                <tbody id="rangeTableBody"></tbody>
+            </table>
+        </div>
     </div>
-
-    <table id="resultTable">
-        <thead>
-            <tr>
-                <th>編號</th>
-                <th>IP地址</th>
-                <th>帳號與姓名</th>
-                <th>總連線數</th>
-            </tr>
-        </thead>
-        <tbody id="tableBody"></tbody>
-    </table>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script>
@@ -163,12 +185,15 @@
         function renderSelectedDateData() {
             const selectedDate = document.getElementById('dateSelector').value;
             if (!selectedDate || !fileDataMap[selectedDate]) return;
-            renderTable(fileDataMap[selectedDate]);
+            renderTable(fileDataMap[selectedDate], 'dateTableBody');
         }
 
         function handleRangeStats() {
             const days = parseInt(document.getElementById('rangeSelector').value);
-            if (!days) return;
+            if (!days) {
+                renderTable([], 'rangeTableBody');
+                return;
+            }
             const sortedDates = Object.keys(fileDataMap).sort();
             const targetDates = sortedDates.slice(-days);
             const ipMap = new Map();
@@ -193,11 +218,11 @@
                 connections: item.count
             }));
 
-            renderTable(tableData);
+            renderTable(tableData, 'rangeTableBody');
         }
 
-        function renderTable(data) {
-            const tbody = document.getElementById('tableBody');
+        function renderTable(data, tbodyId) {
+            const tbody = document.getElementById(tbodyId);
             tbody.innerHTML = '';
             data.forEach((item, index) => {
                 const row = document.createElement('tr');

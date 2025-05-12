@@ -3,18 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <title>Excel 連線前十分析工具</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            margin: 20px;
-            background-color: #f5f7fa;
+            font-family: 'Noto Sans TC', Arial, sans-serif;
+            margin: 30px;
+            background-color: #f8fafc;
+            line-height: 1.6;
+            transition: background 0.3s;
         }
-        .upload-section, .controls-section {
-            background: white;
-            padding: 20px;
+        .upload-section, .left-panel, .right-panel {
+            background: #ffffff;
+            padding: 25px;
             border-radius: 10px;
-            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            margin-bottom: 30px;
+        }
+        h2 {
+            font-size: 1.75rem;
+            color: #1e40af;
             margin-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 10px;
         }
         .main-container {
             display: flex;
@@ -22,64 +34,133 @@
         }
         .left-panel, .right-panel {
             flex: 1;
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
         }
         #fileInput {
             display: none;
         }
         .custom-upload-btn {
-            background: #4CAF50;
+            background: #3b82f6;
             color: white;
-            padding: 12px 25px;
-            border-radius: 5px;
+            padding: 12px 20px;
+            border-radius: 8px;
             cursor: pointer;
-            transition: background 0.3s;
-            display: inline-block;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
         }
         .custom-upload-btn:hover {
-            background: #45a049;
+            background: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        #clearDataBtn {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #clearDataBtn:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
         }
         table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 10px;
+            border-radius: 8px;
+            overflow: hidden;
         }
         th {
-            background: #2196F3;
+            background: #3b82f6;
             color: white;
-            padding: 10px;
+            padding: 12px;
             text-align: left;
         }
         td {
-            padding: 10px;
-            border-bottom: 1px solid #eee;
+            padding: 12px;
+            border-bottom: 1px solid #e2e8f0;
+            color: #1f2937;
+        }
+        tr {
+            transition: background 0.2s ease;
         }
         tr:hover {
-            background-color: #f5f5f5;
+            background-color: #eff6ff;
+        }
+        .highlight {
+            background-color: #fef3c7;
         }
         .status {
             margin-top: 10px;
-            color: #666;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status.success {
+            color: #10b981;
+        }
+        .status.error {
+            color: #ef4444;
         }
         select {
             margin-bottom: 10px;
-            padding: 8px;
+            padding: 10px;
             width: 100%;
+            border-radius: 6px;
+            border: 1px solid #d1d5db;
+        }
+        select:focus {
+            outline: 2px solid #3b82f6;
+            background: #dbeafe;
+        }
+        .loader {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #3b82f6;
+            font-size: 1.2rem;
+        }
+        tbody {
+            animation: fadeIn 0.5s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @media (max-width: 768px) {
+            .main-container {
+                flex-direction: column;
+            }
+            .left-panel, .right-panel {
+                width: 100%;
+                padding: 15px;
+            }
+            table {
+                font-size: 0.9rem;
+                display: block;
+                overflow-x: auto;
+            }
         }
     </style>
 </head>
 <body>
+    <button id="themeToggle" style="position: absolute; top: 20px; right: 20px; padding: 8px; background: #3b82f6; color: white; border-radius: 4px;"><i class="fas fa-moon"></i></button>
     <div class="upload-section">
         <h2>Excel 連線前十分析工具</h2>
-        <label class="custom-upload-btn" for="fileInput">📁 上傳 Excel 檔案</label>
+        <label class="custom-upload-btn" for="fileInput"><i class="fas fa-upload"></i> 上傳 Excel 檔案</label>
         <input type="file" id="fileInput" accept=".xls,.xlsx" multiple>
-        <div class="status" id="status"></div>
+        <div class="loader" id="loader"><i class="fas fa-spinner fa-spin"></i> 處理中...</div>
+        <div class="status" id="status" role="alert"></div>
         <div style="margin-top: 10px; display: flex; gap: 10px;">
-            <button id="clearDataBtn" style="background: #ff6b6b; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;">清除所有數據</button>
-            <span id="lastUpdatedInfo" style="font-size: 12px; color: #666; align-self: center;"></span>
+            <button id="clearDataBtn"><i class="fas fa-trash"></i> 清除所有數據</button>
+            <span id="lastUpdatedInfo" style="font-size: 12px; color: #6b7280; align-self: center;"></span>
         </div>
     </div>
 
@@ -90,7 +171,8 @@
             <div style="margin-bottom: 10px;">
                 <small id="dataRetentionInfo">系統自動保留最近30天的數據，超過30天自動清除</small>
             </div>
-            <table id="dateResultTable">
+            <canvas id="dateChart" style="margin-top: 20px; max-height: 300px;"></canvas>
+            <table id="dateResultTable" aria-label="單日連線數據">
                 <thead>
                     <tr>
                         <th>編號</th>
@@ -111,7 +193,8 @@
                 <option value="20">20 天內</option>
                 <option value="30">30 天內</option>
             </select>
-            <table id="rangeResultTable">
+            <canvas id="rangeChart" style="margin-top: 20px; max-height: 300px;"></canvas>
+            <table id="rangeResultTable" aria-label="範圍統計數據">
                 <thead>
                     <tr>
                         <th>編號</th>
@@ -126,31 +209,41 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.min.js"></script>
     <script>
-        // 使用localStorage來儲存數據，確保頁面重新整理後數據不會遺失
-        let fileDataMap = {}; // 日期字串 => 資料陣列
-        
-        // 初始化時檢查localStorage是否有數據
+        let fileDataMap = {};
         document.addEventListener('DOMContentLoaded', function() {
             loadSavedData();
-            cleanupOldData(); // 啟動時清理過期數據
+            cleanupOldData();
         });
 
         document.getElementById('fileInput').addEventListener('change', handleFiles);
         document.getElementById('dateSelector').addEventListener('change', renderSelectedDateData);
         document.getElementById('rangeSelector').addEventListener('change', handleRangeStats);
         document.getElementById('clearDataBtn').addEventListener('click', clearAllData);
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            const icon = document.querySelector('#themeToggle i');
+            icon.classList.toggle('fa-moon');
+            icon.classList.toggle('fa-sun');
+        });
 
         function handleFiles(e) {
+            document.getElementById('loader').style.display = 'block';
             const files = Array.from(e.target.files);
+            let successCount = 0;
             files.forEach(file => {
                 const reader = new FileReader();
                 reader.onload = function(event) {
                     const dateStr = extractDateFromFilename(file.name);
                     const data = event.target.result;
                     const workbook = XLSX.read(data, { type: 'array' });
-                    const targetSheet = workbook.SheetNames.find(name => name.includes('Report2') || name.includes('firehol 應用程式 > Top主機'));
-                    if (!targetSheet) return;
+                    const targetSheet = workbook.SheetNames.find(name => name.includes('Report2') || name.includes('應用程式 > Top主機'));
+                    if (!targetSheet) {
+                        document.getElementById('status').innerHTML = `<i class="fas fa-exclamation-circle"></i> 錯誤：${file.name} 無有效工作表`;
+                        document.getElementById('status').className = 'status error';
+                        return;
+                    }
                     const worksheet = workbook.Sheets[targetSheet];
                     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
@@ -164,13 +257,10 @@
                     const results = [];
                     jsonData.forEach((row, index) => {
                         if (index <= jsonData.indexOf(headerRow)) return;
-
                         const rawId = parseInt(row[idColIndex]);
                         if (isNaN(rawId) || rawId < 1 || rawId > 10) return;
-
                         const hostCell = String(row[hostColIndex] || '');
                         if (hostCell.includes('總流量') || hostCell.toLowerCase().includes('total')) return;
-
                         const connections = row[connColIndex] || 0;
                         const ipMatch = hostCell.match(/(\b(?:10|192|172)\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)/);
                         const ip = ipMatch ? ipMatch[1] : '-';
@@ -186,41 +276,41 @@
                             ip, 
                             account: accountInfo, 
                             connections: parseInt(connections.toString().replace(/,/g, '').replace(/[^\d]/g, '')) || 0,
-                            key: `${ip}|${accountInfo}` // 創建一個組合鍵以便統計
+                            key: `${ip}|${accountInfo}`
                         });
                     });
 
                     fileDataMap[dateStr] = results;
                     updateDateSelector();
-                    saveData(); // 儲存數據到localStorage
-                    cleanupOldData(); // 每次新增數據時檢查並清理過期數據
+                    saveData();
+                    cleanupOldData();
+                    successCount++;
+                    document.getElementById('status').innerHTML = `<i class="fas fa-check-circle"></i> 成功上傳 ${successCount}/${files.length} 個檔案`;
+                    document.getElementById('status').className = 'status success';
                 };
                 reader.readAsArrayBuffer(file);
             });
-            document.getElementById('status').textContent = `${files.length} 檔案已上傳`;
+            document.getElementById('loader').style.display = 'none';
         }
-        
-        // 儲存數據到localStorage
+
         function saveData() {
             try {
                 localStorage.setItem('excelAnalysisData', JSON.stringify(fileDataMap));
                 localStorage.setItem('lastUpdated', new Date().toISOString());
             } catch (e) {
-                console.error('儲存數據失敗:', e);
-                // 如果localStorage空間不足，可以考慮清理部分舊數據
+                document.getElementById('status').innerHTML = `<i class="fas fa-exclamation-circle"></i> 儲存失敗：空間不足`;
+                document.getElementById('status').className = 'status error';
             }
         }
-        
-        // 從localStorage載入數據
+
         function loadSavedData() {
             try {
                 const savedData = localStorage.getItem('excelAnalysisData');
                 if (savedData) {
                     fileDataMap = JSON.parse(savedData);
                     updateDateSelector();
-                    document.getElementById('status').textContent = `已載入${Object.keys(fileDataMap).length}個日期的數據`;
-                    
-                    // 顯示最後更新時間
+                    document.getElementById('status').innerHTML = `<i class="fas fa-check-circle"></i> 已載入${Object.keys(fileDataMap).length}個日期的數據`;
+                    document.getElementById('status').className = 'status success';
                     const lastUpdated = localStorage.getItem('lastUpdated');
                     if (lastUpdated) {
                         const formattedDate = new Date(lastUpdated).toLocaleString('zh-TW');
@@ -228,54 +318,44 @@
                     }
                 }
             } catch (e) {
-                console.error('載入數據失敗:', e);
-                fileDataMap = {};
+                document.getElementById('status').innerHTML = `<i class="fas fa-exclamation-circle"></i> 載入數據失敗`;
+                document.getElementById('status').className = 'status error';
             }
         }
-        
-        // 清除所有儲存的數據
+
         function clearAllData() {
             if (confirm('確定要清除所有已儲存的數據嗎？此操作無法復原。')) {
                 localStorage.removeItem('excelAnalysisData');
                 localStorage.removeItem('lastUpdated');
                 fileDataMap = {};
                 updateDateSelector();
-                document.getElementById('status').textContent = '所有數據已清除';
+                document.getElementById('status').innerHTML = `<i class="fas fa-check-circle"></i> 所有數據已清除`;
+                document.getElementById('status').className = 'status success';
                 document.getElementById('lastUpdatedInfo').textContent = '';
                 document.getElementById('dateTableBody').innerHTML = '';
                 document.getElementById('rangeTableBody').innerHTML = '';
             }
         }
-        
-        // 清理超過30天的舊數據
+
         function cleanupOldData() {
             const currentDate = new Date();
             const thirtyDaysAgo = new Date(currentDate);
             thirtyDaysAgo.setDate(currentDate.getDate() - 30);
-            
             let deletedCount = 0;
             const datesToDelete = [];
-            
-            // 找出所有超過30天的日期
             Object.keys(fileDataMap).forEach(dateStr => {
                 const fileDate = new Date(dateStr);
                 if (fileDate < thirtyDaysAgo) {
                     datesToDelete.push(dateStr);
                 }
             });
-            
-            // 刪除舊數據
             datesToDelete.forEach(dateStr => {
                 delete fileDataMap[dateStr];
                 deletedCount++;
             });
-            
             if (deletedCount > 0) {
-                saveData(); // 如果有刪除數據，重新保存
-                console.log(`已清理${deletedCount}個超過30天的舊數據`);
-                if (document.getElementById('status').textContent.includes('已載入')) {
-                    document.getElementById('status').textContent += ` (已清理${deletedCount}個過期數據)`;
-                }
+                saveData();
+                document.getElementById('status').innerHTML += ` (已清理${deletedCount}個過期數據)`;
             }
         }
 
@@ -294,6 +374,7 @@
             const selectedDate = document.getElementById('dateSelector').value;
             if (!selectedDate || !fileDataMap[selectedDate]) return;
             renderTable(fileDataMap[selectedDate], 'dateTableBody');
+            renderChart(fileDataMap[selectedDate], 'dateChart', '單日連線數');
         }
 
         function handleRangeStats() {
@@ -302,54 +383,73 @@
                 renderTable([], 'rangeTableBody');
                 return;
             }
-            
             const sortedDates = Object.keys(fileDataMap).sort();
             const targetDates = sortedDates.slice(-days);
-            
-            // 用於儲存每個IP和帳號組合的統計信息
             const combinedMap = new Map();
-
             targetDates.forEach(date => {
                 const dailyData = fileDataMap[date] || [];
-                // 針對每一天數據，先按連線數排序
-                dailyData.sort((a, b) => b.connections - a.connections);
-                // 只取前三名加入統計
                 dailyData.slice(0, 3).forEach(entry => {
-                    // 使用組合鍵來確保IP和帳號是正確配對的
                     const key = entry.key;
                     if (!combinedMap.has(key)) {
-                        combinedMap.set(key, {
-                            ip: entry.ip,
-                            account: entry.account,
-                            count: 1
-                        });
+                        combinedMap.set(key, { ip: entry.ip, account: entry.account, count: 1 });
                     } else {
-                        const record = combinedMap.get(key);
-                        record.count += 1;
+                        combinedMap.get(key).count += 1;
                     }
                 });
             });
-
-            // 將map轉為陣列並排序
-            const combinedList = Array.from(combinedMap.values())
-                .sort((a, b) => b.count - a.count)
-                .slice(0, 10); // 顯示前十名
-
+            const combinedList = Array.from(combinedMap.values()).sort((a, b) => b.count - a.count).slice(0, 10);
             renderTable(combinedList, 'rangeTableBody');
+            renderChart(combinedList, 'rangeChart', `${days}天內出現次數`);
         }
 
         function renderTable(data, tbodyId) {
             const tbody = document.getElementById(tbodyId);
             tbody.innerHTML = '';
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">無數據</td></tr>';
+                return;
+            }
             data.forEach((item, index) => {
                 const row = document.createElement('tr');
+                const value = item.connections || item.count;
+                if (value > (tbodyId === 'dateTableBody' ? 10000 : 5)) {
+                    row.classList.add('highlight');
+                }
                 row.innerHTML = `
                     <td>${index + 1}</td>
                     <td>${item.ip}</td>
                     <td>${item.account}</td>
-                    <td>${item.connections ? item.connections.toLocaleString() : item.count}</td>
+                    <td>${value.toLocaleString()}</td>
                 `;
                 tbody.appendChild(row);
+            });
+        }
+
+        function renderChart(data, canvasId, label) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            if (window[canvasId]) window[canvasId].destroy(); // 銷毀舊圖表
+            window[canvasId] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(item => item.ip),
+                    datasets: [{
+                        label: label,
+                        data: data.map(item => item.connections || item.count),
+                        backgroundColor: '#3b82f6',
+                        borderColor: '#1e40af',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: true },
+                        title: { display: true, text: label }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
             });
         }
     </script>

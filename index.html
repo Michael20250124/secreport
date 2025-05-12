@@ -196,13 +196,21 @@
         function renderSelectedDateData() {
             const selectedDate = document.getElementById('dateSelector').value;
             if (!selectedDate || !fileDataMap[selectedDate]) return;
-            renderTable(fileDataMap[selectedDate], 'dateTableBody');
+
+            const data = fileDataMap[selectedDate].map((item, idx) => ({
+                index: idx + 1,
+                ip: item.ip || '-',
+                account: item.account || '-',
+                connections: item.connections || 0
+            }));
+
+            renderTable(data, 'dateTableBody', 'date');
         }
 
         function handleRangeStats() {
             const days = parseInt(document.getElementById('rangeSelector').value);
             if (!days) {
-                renderTable([], 'rangeTableBody');
+                renderTable([], 'rangeTableBody', 'range');
                 return;
             }
             const sortedDates = Object.keys(fileDataMap).sort();
@@ -225,22 +233,23 @@
                 .sort((a, b) => b.count - a.count)
                 .slice(0, 5);
 
-            const tableData = merged.map((item, idx) => ({
+            const formattedData = merged.map((item, idx) => ({
+                index: idx + 1,
                 ip: item.ip || '-',
                 account: item.account || '-',
                 connections: item.count
             }));
 
-            renderTable(tableData, 'rangeTableBody');
+            renderTable(formattedData, 'rangeTableBody', 'range');
         }
 
-        function renderTable(data, tbodyId) {
+        function renderTable(data, tbodyId, mode = 'date') {
             const tbody = document.getElementById(tbodyId);
             tbody.innerHTML = '';
-            data.forEach((item, index) => {
+            data.forEach((item) => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td>${index + 1}</td>
+                    <td>${item.index}</td>
                     <td>${item.ip}</td>
                     <td>${item.account}</td>
                     <td>${item.connections.toLocaleString()}</td>

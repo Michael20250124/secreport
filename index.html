@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <title>Excel 連線行為分析工具</title>
+    <title>Excel 連線前十分析工具</title>
     <style>
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
@@ -73,7 +73,7 @@
 </head>
 <body>
     <div class="upload-section">
-        <h2>Excel 連線行為分析工具</h2>
+        <h2>Excel 連線前十分析工具</h2>
         <label class="custom-upload-btn" for="fileInput">📁 上傳 Excel 檔案</label>
         <input type="file" id="fileInput" accept=".xls,.xlsx" multiple>
         <div class="status" id="status"></div>
@@ -120,7 +120,7 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script>
-        const fileDataMap = {};
+        const fileDataMap = {}; // 日期字串 => 資料陣列
 
         document.getElementById('fileInput').addEventListener('change', handleFiles);
         document.getElementById('dateSelector').addEventListener('change', renderSelectedDateData);
@@ -139,11 +139,7 @@
                     const worksheet = workbook.Sheets[targetSheet];
                     const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
-                    const headerRow = jsonData.find(row =>
-                        row.some(cell => cell.includes('編號')) &&
-                        row.some(cell => cell.includes('主機')) &&
-                        row.some(cell => cell.includes('總連線數'))
-                    );
+                    const headerRow = jsonData.find(row => row.some(cell => cell.includes('編號')) && row.some(cell => cell.includes('主機')) && row.some(cell => cell.includes('總連線數')));
                     if (!headerRow) return;
 
                     const hostColIndex = headerRow.findIndex(cell => cell.includes('主機'));
@@ -154,11 +150,11 @@
                     jsonData.forEach((row, index) => {
                         if (index <= jsonData.indexOf(headerRow)) return;
 
-                        const id = row[idColIndex];
-                        if (typeof id !== 'number' || id < 1 || id > 10) return;
+                        const rawId = parseInt(row[idColIndex]);
+                        if (isNaN(rawId) || rawId < 1 || rawId > 10) return;
 
                         const hostCell = String(row[hostColIndex] || '');
-                        if (/total|總流量/i.test(hostCell)) return;
+                        if (hostCell.includes('總流量') || hostCell.toLowerCase().includes('total')) return;
 
                         const connections = row[connColIndex] || 0;
                         const ipMatch = hostCell.match(/(\b(?:10|192|172)\.\d{1,3}\.\d{1,3}\.\d{1,3}\b)/);
@@ -171,10 +167,11 @@
                             const validAccount = cleanAccount.match(/(.+?\(.+?\))/);
                             accountInfo = validAccount ? validAccount[1] : cleanAccount;
                         }
-                        results.push({
-                            ip,
-                            account: accountInfo,
-                            connections: parseInt(connections.toString().replace(/,/g, '').replace(/[^\d]/g, '')) || 0
+                        results.push({ 
+                            ip, 
+                            account: accountInfo, 
+                            connections: parseInt(connections.toString().replace(/,/g, '').replace(/[^\d]/g, '')) || 0,
+                            key: `${ip}|${accountInfo}` // 創建一個組合鍵以便統計
                         });
                     });
 
@@ -194,58 +191,69 @@
         function updateDateSelector() {
             const selector = document.getElementById('dateSelector');
             const dates = Object.keys(fileDataMap).sort();
-            selector.innerHTML = '<option value="">請選擇</option>' + dates.map(date => `<option value="${date}">${date}</option>`).join('');
+            selector.innerHTML = '<option>請選擇</option>' + dates.map(date => `<option value="${date}">${date}</option>`).join('');
         }
 
         function renderSelectedDateData() {
             const selectedDate = document.getElementById('dateSelector').value;
-            if (!selectedDate || !fileDataMap[selectedDate]) {
-                renderTable([], 'dateTableBody', 'connections');
-                return;
-            }
-            renderTable(fileDataMap[selectedDate], 'dateTableBody', 'connections');
+            if (!selectedDate || !fileDataMap[selectedDate]) return;
+            renderTable(fileDataMap[selectedDate], 'dateTableBody');
         }
 
         function handleRangeStats() {
             const days = parseInt(document.getElementById('rangeSelector').value);
             if (!days) {
-                renderTable([], 'rangeTableBody', 'count');
+                renderTable([], 'rangeTableBody');
                 return;
             }
+            
             const sortedDates = Object.keys(fileDataMap).sort();
             const targetDates = sortedDates.slice(-days);
+            
+            // 用於儲存每個IP和帳號組合的統計信息
             const combinedMap = new Map();
 
             targetDates.forEach(date => {
                 const dailyData = fileDataMap[date] || [];
-                dailyData.forEach(entry => {
-                    const key = `${entry.ip}___${entry.account}`;
-                    combinedMap.set(key, (combinedMap.get(key) || 0) + 1);
+                // 針對每一天數據，先按連線數排序
+                dailyData.sort((a, b) => b.connections - a.connections);
+                // 只取前三名加入統計
+                dailyData.slice(0, 3).forEach(entry => {
+                    // 使用組合鍵來確保IP和帳號是正確配對的
+                    const key = entry.key;
+                    if (!combinedMap.has(key)) {
+                        combinedMap.set(key, {
+                            ip: entry.ip,
+                            account: entry.account,
+                            count: 1
+                        });
+                    } else {
+                        const record = combinedMap.get(key);
+                        record.count += 1;
+                    }
                 });
             });
 
-            const merged = Array.from(combinedMap.entries())
-                .map(([key, count]) => {
-                    const [ip, account] = key.split('___');
-                    return { ip, account, count };
-                })
-                .sort((a, b) => b.count - a.count);
+            // 將map轉為陣列並排序
+            const combinedList = Array.from(combinedMap.values())
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 10); // 顯示前十名
 
-            renderTable(merged, 'rangeTableBody', 'count');
+            renderTable(combinedList, 'rangeTableBody');
         }
 
-        function renderTable(data, tbodyId, countKey = 'connections') {
+        function renderTable(data, tbodyId) {
             const tbody = document.getElementById(tbodyId);
             tbody.innerHTML = '';
-            data.forEach((row, index) => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
+            data.forEach((item, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
                     <td>${index + 1}</td>
-                    <td>${row.ip}</td>
-                    <td>${row.account}</td>
-                    <td>${row[countKey].toLocaleString()}</td>
+                    <td>${item.ip}</td>
+                    <td>${item.account}</td>
+                    <td>${item.connections ? item.connections.toLocaleString() : item.count}</td>
                 `;
-                tbody.appendChild(tr);
+                tbody.appendChild(row);
             });
         }
     </script>

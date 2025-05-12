@@ -77,12 +77,19 @@
         <label class="custom-upload-btn" for="fileInput">📁 上傳 Excel 檔案</label>
         <input type="file" id="fileInput" accept=".xls,.xlsx" multiple>
         <div class="status" id="status"></div>
+        <div style="margin-top: 10px; display: flex; gap: 10px;">
+            <button id="clearDataBtn" style="background: #ff6b6b; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer;">清除所有數據</button>
+            <span id="lastUpdatedInfo" style="font-size: 12px; color: #666; align-self: center;"></span>
+        </div>
     </div>
 
     <div class="main-container">
         <div class="left-panel">
             <label>選擇日期：</label>
             <select id="dateSelector"></select>
+            <div style="margin-bottom: 10px;">
+                <small id="dataRetentionInfo">系統自動保留最近30天的數據，超過30天自動清除</small>
+            </div>
             <table id="dateResultTable">
                 <thead>
                     <tr>
@@ -120,11 +127,19 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script>
-        const fileDataMap = {}; // 日期字串 => 資料陣列
+        // 使用localStorage來儲存數據，確保頁面重新整理後數據不會遺失
+        let fileDataMap = {}; // 日期字串 => 資料陣列
+        
+        // 初始化時檢查localStorage是否有數據
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSavedData();
+            cleanupOldData(); // 啟動時清理過期數據
+        });
 
         document.getElementById('fileInput').addEventListener('change', handleFiles);
         document.getElementById('dateSelector').addEventListener('change', renderSelectedDateData);
         document.getElementById('rangeSelector').addEventListener('change', handleRangeStats);
+        document.getElementById('clearDataBtn').addEventListener('click', clearAllData);
 
         function handleFiles(e) {
             const files = Array.from(e.target.files);
@@ -177,10 +192,91 @@
 
                     fileDataMap[dateStr] = results;
                     updateDateSelector();
+                    saveData(); // 儲存數據到localStorage
+                    cleanupOldData(); // 每次新增數據時檢查並清理過期數據
                 };
                 reader.readAsArrayBuffer(file);
             });
             document.getElementById('status').textContent = `${files.length} 檔案已上傳`;
+        }
+        
+        // 儲存數據到localStorage
+        function saveData() {
+            try {
+                localStorage.setItem('excelAnalysisData', JSON.stringify(fileDataMap));
+                localStorage.setItem('lastUpdated', new Date().toISOString());
+            } catch (e) {
+                console.error('儲存數據失敗:', e);
+                // 如果localStorage空間不足，可以考慮清理部分舊數據
+            }
+        }
+        
+        // 從localStorage載入數據
+        function loadSavedData() {
+            try {
+                const savedData = localStorage.getItem('excelAnalysisData');
+                if (savedData) {
+                    fileDataMap = JSON.parse(savedData);
+                    updateDateSelector();
+                    document.getElementById('status').textContent = `已載入${Object.keys(fileDataMap).length}個日期的數據`;
+                    
+                    // 顯示最後更新時間
+                    const lastUpdated = localStorage.getItem('lastUpdated');
+                    if (lastUpdated) {
+                        const formattedDate = new Date(lastUpdated).toLocaleString('zh-TW');
+                        document.getElementById('lastUpdatedInfo').textContent = `最後更新: ${formattedDate}`;
+                    }
+                }
+            } catch (e) {
+                console.error('載入數據失敗:', e);
+                fileDataMap = {};
+            }
+        }
+        
+        // 清除所有儲存的數據
+        function clearAllData() {
+            if (confirm('確定要清除所有已儲存的數據嗎？此操作無法復原。')) {
+                localStorage.removeItem('excelAnalysisData');
+                localStorage.removeItem('lastUpdated');
+                fileDataMap = {};
+                updateDateSelector();
+                document.getElementById('status').textContent = '所有數據已清除';
+                document.getElementById('lastUpdatedInfo').textContent = '';
+                document.getElementById('dateTableBody').innerHTML = '';
+                document.getElementById('rangeTableBody').innerHTML = '';
+            }
+        }
+        
+        // 清理超過30天的舊數據
+        function cleanupOldData() {
+            const currentDate = new Date();
+            const thirtyDaysAgo = new Date(currentDate);
+            thirtyDaysAgo.setDate(currentDate.getDate() - 30);
+            
+            let deletedCount = 0;
+            const datesToDelete = [];
+            
+            // 找出所有超過30天的日期
+            Object.keys(fileDataMap).forEach(dateStr => {
+                const fileDate = new Date(dateStr);
+                if (fileDate < thirtyDaysAgo) {
+                    datesToDelete.push(dateStr);
+                }
+            });
+            
+            // 刪除舊數據
+            datesToDelete.forEach(dateStr => {
+                delete fileDataMap[dateStr];
+                deletedCount++;
+            });
+            
+            if (deletedCount > 0) {
+                saveData(); // 如果有刪除數據，重新保存
+                console.log(`已清理${deletedCount}個超過30天的舊數據`);
+                if (document.getElementById('status').textContent.includes('已載入')) {
+                    document.getElementById('status').textContent += ` (已清理${deletedCount}個過期數據)`;
+                }
+            }
         }
 
         function extractDateFromFilename(filename) {

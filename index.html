@@ -110,7 +110,7 @@
                         <th>編號</th>
                         <th>IP地址</th>
                         <th>帳號與姓名</th>
-                        <th>出現次數</th>
+                        <th>出現次數（前五名）</th>
                     </tr>
                 </thead>
                 <tbody id="rangeTableBody"></tbody>
@@ -198,19 +198,24 @@
             const targetDates = sortedDates.slice(-days);
             const ipMap = new Map();
             const nameMap = new Map();
+            const seen = new Set();
 
             targetDates.forEach(date => {
                 const dailyData = fileDataMap[date] || [];
                 dailyData.sort((a, b) => b.connections - a.connections);
                 dailyData.slice(0, 3).forEach(entry => {
+                    const key = `${entry.ip}-${entry.account}`;
+                    if (seen.has(key)) return;
+                    seen.add(key);
                     ipMap.set(entry.ip, (ipMap.get(entry.ip) || 0) + 1);
                     nameMap.set(entry.account, (nameMap.get(entry.account) || 0) + 1);
                 });
             });
 
-            const merged = Array.from(ipMap.entries()).map(([key, count]) => ({ ip: key, count }))
-                .concat(Array.from(nameMap.entries()).map(([key, count]) => ({ account: key, count })))
-                .sort((a, b) => b.count - a.count);
+            const merged = Array.from(ipMap.entries()).map(([key, count]) => ({ ip: key, account: '-', count }))
+                .concat(Array.from(nameMap.entries()).map(([key, count]) => ({ ip: '-', account: key, count })))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 5); // 只顯示前五名
 
             const tableData = merged.map((item, idx) => ({
                 ip: item.ip || '-',

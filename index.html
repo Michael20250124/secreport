@@ -38,6 +38,10 @@
       top: 0;
       z-index: 1020;
     }
+    .data-info {
+      font-size: 0.9rem;
+      color: #6c757d;
+    }
   </style>
 </head>
 <body>
@@ -50,7 +54,11 @@
       </div>
       <input type="file" id="fileInput" accept=".xls,.xlsx" multiple hidden>
       <div id="status" class="mt-2 text-muted"></div>
-      <small class="text-muted d-block mt-1">⚠️ 僅顯示近 30 天內上傳資料</small>
+      <div class="data-info mt-2">
+        <span>📅 目前已儲存 <span id="fileCount">0</span> 個檔案 | </span>
+        <span>🕒 儲存時間: <span id="lastUpdated">-</span></span>
+        <small class="text-muted d-block mt-1">⚠️ 資料將在本機儲存30天，重新整理頁面資料不會消失</small>
+      </div>
     </div>
 
     <div class="row">
@@ -102,7 +110,60 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script>
-    const fileDataMap = {};
+    let fileDataMap = {};
+    const STORAGE_KEY = 'excelAnalyzerData';
+    const STORAGE_DATE_KEY = 'excelAnalyzerLastUpdate';
+    
+    // 載入儲存的資料
+    function loadSavedData() {
+      try {
+        const savedData = localStorage.getItem(STORAGE_KEY);
+        const lastUpdated = localStorage.getItem(STORAGE_DATE_KEY);
+        
+        if (savedData) {
+          fileDataMap = JSON.parse(savedData);
+          
+          // 清除超過30天的資料
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          
+          Object.keys(fileDataMap).forEach(dateKey => {
+            const fileDate = new Date(dateKey);
+            if (fileDate < thirtyDaysAgo) {
+              delete fileDataMap[dateKey];
+            }
+          });
+          
+          // 更新資料計數和最後更新時間
+          document.getElementById('fileCount').textContent = Object.keys(fileDataMap).length;
+          
+          if (lastUpdated) {
+            const updateDate = new Date(parseInt(lastUpdated));
+            document.getElementById('lastUpdated').textContent = updateDate.toLocaleString();
+          }
+          
+          // 儲存清理後的資料
+          saveData();
+          updateDateSelector();
+        }
+      } catch (error) {
+        console.error('載入儲存資料時發生錯誤:', error);
+      }
+    }
+    
+    // 儲存資料到 localStorage
+    function saveData() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(fileDataMap));
+        localStorage.setItem(STORAGE_DATE_KEY, Date.now().toString());
+        
+        document.getElementById('fileCount').textContent = Object.keys(fileDataMap).length;
+        document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
+      } catch (error) {
+        console.error('儲存資料時發生錯誤:', error);
+        alert('儲存資料失敗，可能是瀏覽器儲存空間不足');
+      }
+    }
 
     document.getElementById('fileInput').addEventListener('change', handleFiles);
     document.getElementById('dateSelector').addEventListener('change', renderSelectedDateData);
@@ -114,11 +175,14 @@
         renderTable([], 'dateTableBody');
         renderTable([], 'rangeTableBody');
         document.getElementById('status').textContent = '所有資料已清除';
+        saveData();
       }
     });
 
     function handleFiles(e) {
       const files = Array.from(e.target.files);
+      let processedCount = 0;
+      
       files.forEach(file => {
         const reader = new FileReader();
         reader.onload = function(event) {
@@ -126,12 +190,21 @@
           const data = event.target.result;
           const workbook = XLSX.read(data, { type: 'array' });
           const targetSheet = workbook.SheetNames.find(name => name.includes('Report2') || name.includes('firehol 應用程式 > Top主機'));
-          if (!targetSheet) return;
+          if (!targetSheet) {
+            processedCount++;
+            checkAllProcessed();
+            return;
+          }
+          
           const worksheet = workbook.Sheets[targetSheet];
           const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
           const headerRow = jsonData.find(row => row.some(cell => cell.includes('編號')) && row.some(cell => cell.includes('主機')) && row.some(cell => cell.includes('總連線數')));
-          if (!headerRow) return;
+          if (!headerRow) {
+            processedCount++;
+            checkAllProcessed();
+            return;
+          }
 
           const hostColIndex = headerRow.findIndex(cell => cell.includes('主機'));
           const connColIndex = headerRow.findIndex(cell => cell.includes('總連線數'));
@@ -167,11 +240,20 @@
           });
 
           fileDataMap[dateStr] = results;
-          updateDateSelector();
+          processedCount++;
+          checkAllProcessed();
         };
+        
         reader.readAsArrayBuffer(file);
       });
-      document.getElementById('status').textContent = `${files.length} 檔案已上傳`;
+      
+      function checkAllProcessed() {
+        if (processedCount === files.length) {
+          saveData();
+          updateDateSelector();
+          document.getElementById('status').textContent = `${files.length} 檔案已上傳並儲存`;
+        }
+      }
     }
 
     function extractDateFromFilename(filename) {
@@ -242,6 +324,11 @@
         tbody.appendChild(row);
       });
     }
+    
+    // 頁面載入時執行
+    window.addEventListener('DOMContentLoaded', () => {
+      loadSavedData();
+    });
   </script>
 </body>
 </html>
